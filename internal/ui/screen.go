@@ -58,9 +58,20 @@ func (sm *ScreenManager) InitComponents(screenWidth, screenHeight int) {
 		sm.editor.SetBuffer(buf)
 	})
 
+	sm.sidebar.SetFocusCallback(func() {
+		sm.focusOrder[sm.focusedIdx].Blur()
+		sm.focusedIdx = 0 // sidebar index
+		sm.focusOrder[sm.focusedIdx].Focus()
+	})
+
 	// Editor
 	edX, edY, edW, edH := l.GetEditorArea(screenWidth, screenHeight)
 	sm.editor = editor.CreateEditor(edX, edY, edW, edH)
+	sm.editor.SetFocusCallback(func() {
+		sm.focusOrder[sm.focusedIdx].Blur()
+		sm.focusedIdx = 1 // editor index in focusOrder
+		sm.focusOrder[sm.focusedIdx].Focus()
+	})
 
 	// StatusBar
 	stX, stY, stW, stH := l.GetStatusBarArea(screenWidth, screenHeight)

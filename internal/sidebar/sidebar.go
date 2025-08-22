@@ -30,6 +30,11 @@ type Sidebar struct {
 	resizing bool
 
 	onFileOpen func(path string)
+	focusCb    func()
+}
+
+func (sb *Sidebar) SetFocusCallback(cb func()) {
+	sb.focusCb = cb
 }
 
 func (sb *Sidebar) SetOnFileOpen(cb func(path string)) {
@@ -319,9 +324,15 @@ func (sb *Sidebar) HandleMouse(ev *tcell.EventMouse) {
 		return
 	}
 
+	// trigger focus first
+	if ev.Buttons()&tcell.Button1 != 0 && sb.focusCb != nil {
+		sb.focusCb()
+	}
+
 	sb.Hovered = idx
 
 	if ev.Buttons()&tcell.Button1 != 0 {
+
 		sb.Selected = idx
 		node := sb.nodes[idx]
 		if node.IsDir {

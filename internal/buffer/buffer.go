@@ -10,6 +10,9 @@ import (
 type Buffer struct {
 	Content [][]rune
 	File    string
+	CursorX int
+	CursorY int
+	mu      sync.RWMutex
 }
 
 func NewBuffer(path string) *Buffer {
@@ -39,6 +42,7 @@ func (b *Buffer) Load() {
 	if len(b.Content) == 0 {
 		b.Content = [][]rune{{}}
 	}
+	b.CursorX, b.CursorY = 0, 0
 }
 
 func (b *Buffer) Save() {
@@ -59,8 +63,112 @@ func (b *Buffer) Save() {
 		_, _ = writer.WriteString(string(line) + "\n")
 	}
 	writer.Flush()
-	log.Println("File saved.")
+	log.Println("File saved:", b.File)
 }
+
+// --- Editing helpers ---
+
+func (b *Buffer) InsertRune(ch rune) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.CursorY >= len(b.Content) {
+		b.Content = append(b.Content, []rune{})
+	}
+	line := b.Content[b.CursorY]
+
+	if b.CursorX > len(line) {
+		b.CursorX = len(line)
+	}
+
+	// insert at cursor
+	newLine := append(line[:b.CursorX], append([]rune{ch}, line[b.CursorX:]...)...)
+	b.Content[b.CursorY] = newLine
+	b.CursorX++
+}
+
+func (b *Buffer) DeleteRune() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.CursorY >= len(b.Content) {
+		return
+	}
+	line := b.Content[b.CursorY]
+
+	if b.CursorX == 0 {
+		// join with previous line
+		if b.CursorY > 0 {
+			prev := b.Content[b.CursorY-1]
+			b.Content[b.CursorY-1] = append(prev, line...)
+			b.Content = append(b.Content[:b.CursorY], b.Content[b.CursorY+1:]...)
+			b.CursorY--
+			b.CursorX = len(prev)
+		}
+		return
+	}
+
+	// delete before cursor
+	newLine := append(line[:b.CursorX-1], line[b.CursorX:]...)
+	b.Content[b.CursorY] = newLine
+	b.CursorX--
+}
+
+func (b *Buffer) InsertLine() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.CursorY >= len(b.Content) {
+		b.Content = append(b.Content, []rune{})
+		b.CursorY = len(b.Content) - 1
+		b.CursorX = 0
+		return
+	}
+
+	line := b.Content[b.CursorY]
+	left := line[:b.CursorX]
+	right := line[b.CursorX:]
+
+	// replace current line with left, insert right below
+	b.Content[b.CursorY] = left
+	b.Content = append(b.Content[:b.CursorY+1], append([][]rune{right}, b.Content[b.CursorY+1:]...)...)
+
+	b.CursorY++
+	b.CursorX = 0
+}
+
+func (b *Buffer) SetLine(y int, text string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if y < 0 || y >= len(b.Content) {
+		return
+	}
+	b.Content[y] = []rune(text)
+}
+
+func (b *Buffer) Line(y int) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if y < 0 || y >= len(b.Content) {
+		return ""
+	}
+	return string(b.Content[y])
+}
+
+func (b *Buffer) Lines() []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	lines := make([]string, len(b.Content))
+	for i, l := range b.Content {
+		lines[i] = string(l)
+	}
+	return lines
+}
+
+// ---------------- BufferManager -----------------
 
 type BufferManager struct {
 	buffers map[string]*Buffer
@@ -74,7 +182,6 @@ func NewBufferManager() *BufferManager {
 	}
 }
 
-// Open a file into a buffer (or reuse existing one)
 func (bm *BufferManager) Open(path string) *Buffer {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()

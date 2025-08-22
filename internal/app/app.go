@@ -32,6 +32,7 @@ func (app *App) Initialize() error {
 	// Enable mouse events
 	screen.EnableMouse()
 	screen.EnablePaste()
+	// screen.ShowCursor(0, 0)
 
 	app.screen = screen
 
