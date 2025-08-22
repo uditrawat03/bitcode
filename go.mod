@@ -3,6 +3,7 @@ module github.com/uditrawat03/bitcode
 go 1.24.1
 
 require (
+	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/gdamore/tcell/v2 v2.8.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

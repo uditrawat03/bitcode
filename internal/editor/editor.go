@@ -13,6 +13,14 @@ type Editor struct {
 	focused             bool
 	buffer              *buffer.Buffer
 
+	clipboard []rune
+
+	selecting bool
+	selStartX int
+	selStartY int
+	selEndX   int
+	selEndY   int
+
 	focusCb func()
 }
 
@@ -73,6 +81,10 @@ func (ed *Editor) Draw(screen tcell.Screen) {
 		currentLineStyle := style
 		if idx == ed.buffer.CursorY {
 			currentLineStyle = highlightStyle
+		}
+
+		if idx == ed.buffer.CursorY || ed.isLineSelected(idx) {
+			currentLineStyle = highlightStyle // full-width highlight
 		}
 
 		// Draw line numbers
