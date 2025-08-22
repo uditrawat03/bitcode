@@ -7,7 +7,20 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// --- Typing check ---
+// --- Edit tracking ---
+type EditType int
+
+const (
+	Insert EditType = iota
+	Delete
+)
+
+type Edit struct {
+	Typ        EditType
+	PosX, PosY int
+	Text       []rune
+}
+
 func (ed *Editor) isTypingKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyRune, tcell.KeyTab, tcell.KeyEnter, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
@@ -17,7 +30,6 @@ func (ed *Editor) isTypingKey(ev *tcell.EventKey) bool {
 	}
 }
 
-// --- Key handler ---
 func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	if !ed.focused || ed.buffer == nil {
 		return
@@ -67,6 +79,10 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.handleSave()
 	case tcell.KeyCtrlA:
 		ed.handleSelectAll()
+	case tcell.KeyCtrlZ:
+		ed.buffer.Undo()
+	case tcell.KeyCtrlY:
+		ed.buffer.Redo()
 	default:
 		ed.handleRune(ev)
 	}

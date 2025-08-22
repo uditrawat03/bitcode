@@ -7,6 +7,10 @@ type EditorPadding struct {
 	Right  int
 }
 
+type Rect struct {
+	X, Y, Width, Height int
+}
+
 type UILayout struct {
 	SidebarWidth    int
 	EditorWidth     int
@@ -17,8 +21,8 @@ type UILayout struct {
 	MinHeight       int
 }
 
-func NewUILayout() *UILayout {
-	return &UILayout{
+func NewUILayout(opts ...func(*UILayout)) *UILayout {
+	l := &UILayout{
 		SidebarWidth:    20,
 		EditorWidth:     80,
 		StatusBarHeight: 1,
@@ -32,53 +36,55 @@ func NewUILayout() *UILayout {
 		MinWidth:  100,
 		MinHeight: 30,
 	}
-}
-
-func (l *UILayout) CalculateDimensions(screenWidth, screenHeight int) (int, int) {
-	width := screenWidth
-	height := screenHeight
-
-	if width < l.MinWidth {
-		width = l.MinWidth
+	for _, opt := range opts {
+		opt(l)
 	}
+	return l
+}
 
-	if height < l.MinHeight {
-		height = l.MinHeight
+func (l *UILayout) CalculateDimensions(sw, sh int) (int, int) {
+	if sw < l.MinWidth {
+		sw = l.MinWidth
 	}
-
-	return width, height
+	if sh < l.MinHeight {
+		sh = l.MinHeight
+	}
+	return sw, sh
 }
 
-func (l *UILayout) GetEditorArea(screenWidth, screenHeight int) (int, int, int, int) {
-	width, height := l.CalculateDimensions(screenWidth, screenHeight)
-
-	editorX := l.SidebarWidth + l.EditorPadding.Left
-	editorY := l.TopBarHeight + l.EditorPadding.Top
-	editorWidth := width - l.SidebarWidth - l.EditorPadding.Left - l.EditorPadding.Right
-	editorHeight := height - l.TopBarHeight - l.StatusBarHeight - l.EditorPadding.Top - l.EditorPadding.Bottom
-
-	return editorX, editorY, editorWidth, editorHeight
+func (l *UILayout) GetEditorArea(sw, sh int) Rect {
+	width, height := l.CalculateDimensions(sw, sh)
+	return Rect{
+		X:      l.SidebarWidth + l.EditorPadding.Left,
+		Y:      l.TopBarHeight + l.EditorPadding.Top,
+		Width:  width - l.SidebarWidth - l.EditorPadding.Left - l.EditorPadding.Right,
+		Height: height - l.TopBarHeight - l.StatusBarHeight - l.EditorPadding.Top - l.EditorPadding.Bottom,
+	}
 }
 
-func (l *UILayout) GetSidebarArea(screenWidth, screenHeight int) (int, int, int, int) {
-	_, height := l.CalculateDimensions(screenWidth, screenHeight)
-
-	sidebarX := 0
-	sidebarY := l.TopBarHeight
-	sidebarWidth := l.SidebarWidth
-	sidebarHeight := height - l.TopBarHeight - l.StatusBarHeight
-
-	return sidebarX, sidebarY, sidebarWidth, sidebarHeight
+func (l *UILayout) GetSidebarArea(sw, sh int) Rect {
+	_, height := l.CalculateDimensions(sw, sh)
+	return Rect{
+		X:      0,
+		Y:      l.TopBarHeight,
+		Width:  l.SidebarWidth,
+		Height: height - l.TopBarHeight - l.StatusBarHeight,
+	}
 }
 
-func (l *UILayout) GetStatusBarArea(screenWidth, screenHeight int) (int, int, int, int) {
-	width, height := l.CalculateDimensions(screenWidth, screenHeight)
-	return 0, height - l.StatusBarHeight, width, l.StatusBarHeight
+func (l *UILayout) GetStatusBarArea(sw, sh int) Rect {
+	width, height := l.CalculateDimensions(sw, sh)
+	return Rect{
+		X:      0,
+		Y:      height - l.StatusBarHeight,
+		Width:  width,
+		Height: l.StatusBarHeight,
+	}
 }
 
-func (l *UILayout) GetTopBarArea(screenWidth, screenHeight int) (int, int, int, int) {
-	width, _ := l.CalculateDimensions(screenWidth, screenHeight)
-	return 0, 0, width, l.TopBarHeight
+func (l *UILayout) GetTopBarArea(sw, _ int) Rect {
+	width, _ := l.CalculateDimensions(sw, 0)
+	return Rect{X: 0, Y: 0, Width: width, Height: l.TopBarHeight}
 }
 
 func (l *UILayout) GetEditorPadding() EditorPadding {

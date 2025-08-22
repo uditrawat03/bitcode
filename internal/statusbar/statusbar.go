@@ -2,6 +2,10 @@ package statusbar
 
 import "github.com/gdamore/tcell/v2"
 
+type Resizable interface {
+	Resize(x, y, w, h int)
+}
+
 type StatusBar struct {
 	x, y, width, height int
 	focused             bool
@@ -9,6 +13,10 @@ type StatusBar struct {
 
 func CreateStatusBar(x, y, width, height int) *StatusBar {
 	return &StatusBar{x: x, y: y, width: width, height: height}
+}
+
+func (sb *StatusBar) Resize(x, y, w, h int) {
+	sb.x, sb.y, sb.width, sb.height = x, y, w, h
 }
 
 // Focusable

@@ -2,6 +2,10 @@ package topbar
 
 import "github.com/gdamore/tcell/v2"
 
+type Resizable interface {
+	Resize(x, y, w, h int)
+}
+
 type TopBar struct {
 	x, y, width, height int
 	focused             bool
@@ -9,6 +13,10 @@ type TopBar struct {
 
 func CreateTopBar(x, y, width, height int) *TopBar {
 	return &TopBar{x: x, y: y, width: width, height: height}
+}
+
+func (tb *TopBar) Resize(x, y, w, h int) {
+	tb.x, tb.y, tb.width, tb.height = x, y, w, h
 }
 
 // Focusable

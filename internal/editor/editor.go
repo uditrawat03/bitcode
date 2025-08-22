@@ -7,6 +7,10 @@ import (
 	"github.com/uditrawat03/bitcode/internal/buffer"
 )
 
+type Resizable interface {
+	Resize(x, y, w, h int)
+}
+
 type Editor struct {
 	x, y, width, height int
 	scrollY             int
@@ -31,6 +35,10 @@ func (ed *Editor) SetFocusCallback(cb func()) {
 
 func CreateEditor(x, y, width, height int) *Editor {
 	return &Editor{x: x, y: y, width: width, height: height}
+}
+
+func (ed *Editor) Resize(x, y, w, h int) {
+	ed.x, ed.y, ed.width, ed.height = x, y, w, h
 }
 
 func (ed *Editor) SetBuffer(buf *buffer.Buffer) {

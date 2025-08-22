@@ -2,20 +2,26 @@ package app
 
 import (
 	"log"
+	"os"
 
 	"github.com/gdamore/tcell/v2"
+	lsp "github.com/uditrawat03/bitcode/internal/lsp_client"
 	"github.com/uditrawat03/bitcode/internal/ui"
 )
 
 type App struct {
-	screen  tcell.Screen
-	ui      *ui.ScreenManager
-	running bool
+	screen    tcell.Screen
+	ui        *ui.ScreenManager
+	lspServer *lsp.Client
+	logger    *log.Logger
+	running   bool
 }
 
-func CreateApp() *App {
+func CreateApp(logger *log.Logger) *App {
 	return &App{
-		running: true,
+		running:   true,
+		lspServer: lsp.NewServer(logger),
+		logger:    logger,
 	}
 }
 
@@ -24,23 +30,27 @@ func (app *App) Initialize() error {
 	if err != nil {
 		return err
 	}
-
 	if err := screen.Init(); err != nil {
 		return err
 	}
 
-	// Enable mouse events
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "." // fallback
+	}
+
 	screen.EnableMouse()
 	screen.EnablePaste()
-	// screen.ShowCursor(0, 0)
 
 	app.screen = screen
+	app.ui = ui.CreateScreenManager(app.lspServer, cwd)
 
-	app.ui = ui.CreateScreenManager()
+	width, height := screen.Size()
+	app.ui.InitComponents(width, height)
 
-	// Initialize all UI components with screen dimensions
-	screenWidth, screenHeight := screen.Size()
-	app.ui.InitComponents(screenWidth, screenHeight)
+	app.lspServer.Start("/var/www/html/MindFreak/GO/lsp-server/main", "--stdio")
+
+	app.lspServer.Initialize(cwd)
 
 	return nil
 }
@@ -61,6 +71,8 @@ func (app *App) Run() {
 			} else {
 				app.ui.HandleKey(ev)
 			}
+		case *tcell.EventResize:
+			app.draw()
 		case *tcell.EventMouse:
 			app.ui.HandleMouse(ev)
 		}
@@ -68,7 +80,7 @@ func (app *App) Run() {
 		app.draw()
 	}
 
-	log.Println("Application has exited gracefully.")
+	app.logger.Println("Application has exited gracefully.")
 }
 
 func (app *App) draw() {
@@ -78,9 +90,15 @@ func (app *App) draw() {
 }
 
 func (app *App) Shutdown() {
+	if app.lspServer != nil {
+		app.lspServer.Stop()
+		app.lspServer = nil
+	}
+
 	if app.screen != nil {
 		app.screen.Fini()
 		app.screen = nil
 	}
-	log.Println("Application shut down.")
+
+	app.logger.Println("Application shut down.")
 }

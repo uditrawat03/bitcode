@@ -40,5 +40,6 @@ func (sm *ScreenManager) HandleKey(ev *tcell.EventKey) {
 	if len(sm.focusOrder) == 0 {
 		return
 	}
+
 	sm.focusOrder[sm.focusedIdx].HandleKey(ev)
 }
