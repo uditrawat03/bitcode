@@ -113,3 +113,11 @@ func (ed *Editor) Draw(screen tcell.Screen) {
 		}
 	}
 }
+
+func (ed *Editor) GetBuffer() *buffer.Buffer {
+	return ed.buffer
+}
+
+func (ed *Editor) GetBufferParentFolder() string {
+	return ed.buffer.ParentFolder()
+}

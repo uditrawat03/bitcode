@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/gdamore/tcell/v2"
+	dialog "github.com/uditrawat03/bitcode/internal/Dialog"
 	"github.com/uditrawat03/bitcode/internal/buffer"
 	"github.com/uditrawat03/bitcode/internal/editor"
 	"github.com/uditrawat03/bitcode/internal/layout"
@@ -22,11 +23,14 @@ type Focusable interface {
 type ScreenManager struct {
 	layoutManager *layout.LayoutManager
 	bufferManager *buffer.BufferManager
+	screen        tcell.Screen
 
 	editor    *editor.Editor
 	sidebar   *sidebar.Sidebar
 	topBar    *topbar.TopBar
 	statusBar *statusbar.StatusBar
+
+	dialog *dialog.Dialog
 
 	focusOrder []Focusable
 	focusedIdx int
@@ -91,29 +95,19 @@ func (sm *ScreenManager) InitComponents(screenWidth, screenHeight int) {
 
 // Switch focus to next component
 func (sm *ScreenManager) FocusNext() {
+	if sm.dialog != nil {
+		// dialog keeps focus if open
+		return
+	}
 	sm.focusOrder[sm.focusedIdx].Blur()
 	sm.focusedIdx = (sm.focusedIdx + 1) % len(sm.focusOrder)
 	sm.focusOrder[sm.focusedIdx].Focus()
 }
 
-func (sm *ScreenManager) HandleMouse(ev *tcell.EventMouse) {
-	// only delegate
-	for _, comp := range sm.focusOrder {
-		comp.HandleMouse(ev)
-	}
-}
-
-// screen_manager.go
-func (sm *ScreenManager) HandleKey(ev *tcell.EventKey) {
-	if len(sm.focusOrder) == 0 {
-		return
-	}
-	sm.focusOrder[sm.focusedIdx].HandleKey(ev)
-}
-
 // Draw all components
 func (sm *ScreenManager) Draw(screen tcell.Screen) {
-	screenWidth, screenHeight := screen.Size()
+	sm.screen = screen
+	screenWidth, screenHeight := sm.screen.Size()
 	sm.layoutManager.UpdateLayout(screenWidth, screenHeight)
 
 	// Redraw components
@@ -122,5 +116,11 @@ func (sm *ScreenManager) Draw(screen tcell.Screen) {
 	sm.editor.Draw(screen)
 	sm.statusBar.Draw(screen)
 
-	screen.Show()
+	// Draw dialog on top
+	if sm.dialog != nil {
+		sm.dialog.Center(screen)
+		sm.dialog.Draw(screen)
+	}
+
+	sm.screen.Show()
 }

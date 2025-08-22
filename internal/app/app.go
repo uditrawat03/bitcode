@@ -56,7 +56,7 @@ func (app *App) Run() {
 
 		switch ev := event.(type) {
 		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape {
+			if ev.Key() == tcell.KeyEscape && !app.ui.IsDialogOpen() {
 				app.running = false
 			} else {
 				app.ui.HandleKey(ev)

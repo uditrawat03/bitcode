@@ -1,13 +1,29 @@
 package editor
 
 import (
+	"strings"
+
 	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
 )
 
+func (ed *Editor) isTypingKey(ev *tcell.EventKey) bool {
+	switch ev.Key() {
+	case tcell.KeyRune, tcell.KeyTab, tcell.KeyEnter, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
+		return true
+	default:
+		return false
+	}
+}
+
 func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	if !ed.focused || ed.buffer == nil {
 		return
+	}
+
+	// Cancel Ctrl+A selection on typing keys (not arrow or meta)
+	if ed.selecting && !ed.isTypingKey(ev) {
+		ed.selecting = false
 	}
 
 	shift := ev.Modifiers()&tcell.ModShift != 0
@@ -30,6 +46,8 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.handlePageUp()
 	case tcell.KeyPgDn:
 		ed.handlePageDown()
+	case tcell.KeyTab:
+		ed.handleTab()
 	case tcell.KeyDelete:
 		ed.handleDelete()
 	case tcell.KeyEnter:
@@ -113,6 +131,29 @@ func (ed *Editor) handlePageDown() {
 	ed.buffer.CursorY += ed.height
 	if ed.buffer.CursorY >= len(ed.buffer.Content) {
 		ed.buffer.CursorY = len(ed.buffer.Content) - 1
+	}
+}
+
+func (ed *Editor) handleTab() {
+	if ed.buffer == nil {
+		return
+	}
+
+	if ed.selecting {
+		startY, endY := ed.selStartY, ed.selEndY
+		if startY > endY {
+			startY, endY = endY, startY
+		}
+		const tabSize = 4
+		for y := startY; y <= endY; y++ {
+			line := string(ed.buffer.Content[y])
+			ed.buffer.SetLine(y, strings.Repeat(" ", tabSize)+line)
+		}
+	} else {
+		const tabSize = 4
+		for i := 0; i < tabSize; i++ {
+			ed.buffer.InsertRune(' ')
+		}
 	}
 }
 

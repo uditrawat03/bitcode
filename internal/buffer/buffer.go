@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -356,4 +357,11 @@ func (buf *Buffer) PasteClipboard(text []rune) {
 
 	buf.CursorY = lastLineIdx
 	buf.CursorX = len(lines[len(lines)-1])
+}
+
+func (b *Buffer) ParentFolder() string {
+	if b.File == "" {
+		return "."
+	}
+	return filepath.Dir(b.File)
 }
