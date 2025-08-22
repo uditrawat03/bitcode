@@ -63,7 +63,6 @@ func (b *Buffer) Save() {
 		_, _ = writer.WriteString(string(line) + "\n")
 	}
 	writer.Flush()
-	log.Println("File saved:", b.File)
 }
 
 // --- Editing helpers ---
