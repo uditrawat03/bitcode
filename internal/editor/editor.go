@@ -15,11 +15,12 @@ type Editor struct {
 
 	clipboard []rune
 
-	selecting bool
-	selStartX int
-	selStartY int
-	selEndX   int
-	selEndY   int
+	selecting     bool
+	ctrlASelected bool
+	selStartX     int
+	selStartY     int
+	selEndX       int
+	selEndY       int
 
 	focusCb func()
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+// --- Typing check ---
 func (ed *Editor) isTypingKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyRune, tcell.KeyTab, tcell.KeyEnter, tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
@@ -16,19 +17,21 @@ func (ed *Editor) isTypingKey(ev *tcell.EventKey) bool {
 	}
 }
 
+// --- Key handler ---
 func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	if !ed.focused || ed.buffer == nil {
 		return
 	}
 
-	// Cancel Ctrl+A selection on typing keys (not arrow or meta)
-	if ed.selecting && !ed.isTypingKey(ev) {
+	// Cancel Ctrl+A selection on typing keys (except delete/backspace/tab)
+	if ed.ctrlASelected && ed.isTypingKey(ev) && ev.Key() != tcell.KeyBackspace && ev.Key() != tcell.KeyDelete && ev.Key() != tcell.KeyTab {
 		ed.selecting = false
+		ed.ctrlASelected = false
 	}
 
 	shift := ev.Modifiers()&tcell.ModShift != 0
 
-	// Start selection if Shift pressed
+	// Start shift-selection
 	if shift && !ed.selecting {
 		ed.selecting = true
 		ed.selStartX = ed.buffer.CursorX
@@ -68,8 +71,8 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.handleRune(ev)
 	}
 
-	// Update selection end
-	if ed.selecting {
+	// Update selection end for shift-selection
+	if ed.selecting && !ed.ctrlASelected {
 		ed.selEndX = ed.buffer.CursorX
 		ed.selEndY = ed.buffer.CursorY
 	}
@@ -77,6 +80,7 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	ed.ensureCursorVisible()
 }
 
+// --- Cursor movement ---
 func (ed *Editor) handleCursorMovement(ev *tcell.EventKey) {
 	switch ev.Key() {
 	case tcell.KeyUp:
@@ -110,23 +114,18 @@ func (ed *Editor) handleCursorMovement(ev *tcell.EventKey) {
 	}
 }
 
-func (ed *Editor) handleHome() {
-	ed.buffer.CursorX = 0
-}
-
+func (ed *Editor) handleHome() { ed.buffer.CursorX = 0 }
 func (ed *Editor) handleEnd() {
 	if ed.buffer.CursorY < len(ed.buffer.Content) {
 		ed.buffer.CursorX = len(ed.buffer.Content[ed.buffer.CursorY])
 	}
 }
-
 func (ed *Editor) handlePageUp() {
 	ed.buffer.CursorY -= ed.height
 	if ed.buffer.CursorY < 0 {
 		ed.buffer.CursorY = 0
 	}
 }
-
 func (ed *Editor) handlePageDown() {
 	ed.buffer.CursorY += ed.height
 	if ed.buffer.CursorY >= len(ed.buffer.Content) {
@@ -134,76 +133,90 @@ func (ed *Editor) handlePageDown() {
 	}
 }
 
+// --- Editing ---
 func (ed *Editor) handleTab() {
 	if ed.buffer == nil {
 		return
 	}
+	const tabSize = 4
 
-	if ed.selecting {
+	if ed.hasSelection() || ed.ctrlASelected {
 		startY, endY := ed.selStartY, ed.selEndY
+		if ed.ctrlASelected {
+			startY = 0
+			endY = len(ed.buffer.Content) - 1
+		}
 		if startY > endY {
 			startY, endY = endY, startY
 		}
-		const tabSize = 4
 		for y := startY; y <= endY; y++ {
 			line := string(ed.buffer.Content[y])
 			ed.buffer.SetLine(y, strings.Repeat(" ", tabSize)+line)
 		}
 	} else {
-		const tabSize = 4
 		for i := 0; i < tabSize; i++ {
 			ed.buffer.InsertRune(' ')
 		}
 	}
 }
 
-func (ed *Editor) handleEnter() {
-	ed.buffer.InsertLine()
-}
+func (ed *Editor) handleEnter() { ed.buffer.InsertLine() }
 
 func (ed *Editor) handleBackspace() {
+	if ed.ctrlASelected || ed.hasSelection() {
+		ed.buffer.DeleteSelectionOrAll(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
+		ed.selecting = false
+		ed.ctrlASelected = false
+		return
+	}
 	ed.buffer.DeleteRune()
 }
 
 func (ed *Editor) handleDelete() {
-	ed.buffer.DeleteAtCursor(ed.buffer.CursorX, ed.buffer.CursorY,
-		ed.selStartY, ed.selEndY, ed.selecting)
-	ed.selecting = false
+	if ed.ctrlASelected || ed.hasSelection() {
+		ed.buffer.DeleteSelectionOrAll(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
+		ed.selecting = false
+		ed.ctrlASelected = false
+		return
+	}
+	ed.buffer.DeleteAtCursor(ed.buffer.CursorX, ed.buffer.CursorY, ed.selStartY, ed.selEndY, false)
 }
 
 func (ed *Editor) handleRune(ev *tcell.EventKey) {
 	if ev.Rune() != 0 {
+		if ed.ctrlASelected || ed.hasSelection() {
+			ed.buffer.DeleteSelectionOrAll(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
+			ed.selecting = false
+			ed.ctrlASelected = false
+		}
 		ed.buffer.InsertRune(ev.Rune())
 	}
 }
 
-func (ed *Editor) handleSave() {
-	ed.buffer.Save()
-}
+func (ed *Editor) handleSave() { ed.buffer.Save() }
 
-// Cut selected text and also write to system clipboard
 func (ed *Editor) handleCut() {
-	if !ed.selecting {
+	if !ed.hasSelection() && !ed.ctrlASelected {
 		return
 	}
-	text := ed.buffer.CutSelection(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY)
+	text := ed.buffer.CopyAllOrSelection(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
+	ed.buffer.DeleteSelectionOrAll(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
+
+	ed.clipboard = text
+	clipboard.WriteAll(string(text))
 	ed.selecting = false
-
-	ed.clipboard = text
-	clipboard.WriteAll(string(text))
+	ed.ctrlASelected = false
 }
 
-// Copy selected text and also write to system clipboard
 func (ed *Editor) handleCopy() {
-	if !ed.selecting {
+	if !ed.hasSelection() && !ed.ctrlASelected {
 		return
 	}
-	text := ed.buffer.CopySelection(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY)
+	text := ed.buffer.CopyAllOrSelection(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
 	ed.clipboard = text
 	clipboard.WriteAll(string(text))
 }
 
-// Paste from system clipboard (or internal fallback)
 func (ed *Editor) handlePaste() {
 	str, err := clipboard.ReadAll()
 	if err != nil || str == "" {
@@ -212,30 +225,47 @@ func (ed *Editor) handlePaste() {
 		}
 		str = string(ed.clipboard)
 	}
-
 	text := []rune(str)
+
+	if ed.ctrlASelected || ed.hasSelection() {
+		ed.buffer.DeleteSelectionOrAll(ed.selStartX, ed.selStartY, ed.selEndX, ed.selEndY, ed.ctrlASelected)
+		ed.selStartX, ed.selStartY = 0, 0
+	}
+
 	ed.buffer.PasteClipboard(text)
+	ed.selecting = false
+	ed.ctrlASelected = false
 }
 
-// Ctrl+A select all
+// --- Selection ---
 func (ed *Editor) handleSelectAll() {
+	if ed.buffer == nil || len(ed.buffer.Content) == 0 {
+		return
+	}
 	ed.selStartX, ed.selStartY = 0, 0
 	lastLine := len(ed.buffer.Content) - 1
 	ed.selEndY = lastLine
 	ed.selEndX = len(ed.buffer.Content[lastLine])
 	ed.selecting = true
+	ed.ctrlASelected = true
 }
 
-// Selection check
 func (ed *Editor) isLineSelected(y int) bool {
-	if !ed.selecting {
+	if !ed.selecting && !ed.ctrlASelected {
 		return false
+	}
+	if ed.ctrlASelected {
+		return true
 	}
 	start, end := ed.selStartY, ed.selEndY
 	if start > end {
 		start, end = end, start
 	}
 	return y >= start && y <= end
+}
+
+func (ed *Editor) hasSelection() bool {
+	return ed.selecting && len(ed.buffer.Content) > 0
 }
 
 func (ed *Editor) ensureCursorVisible() {

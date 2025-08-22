@@ -289,6 +289,59 @@ func (buf *Buffer) CopySelection(selStartX, selStartY, selEndX, selEndY int) []r
 	return copied
 }
 
+func (b *Buffer) CopyAllOrSelection(selStartX, selStartY, selEndX, selEndY int, all bool) []rune {
+	if all {
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+
+		var text []rune
+		for i, line := range b.Content {
+			text = append(text, line...)
+			if i < len(b.Content)-1 {
+				text = append(text, '\n')
+			}
+		}
+		return text
+	}
+	return b.CopySelection(selStartX, selStartY, selEndX, selEndY)
+}
+
+// DeleteSelectionOrAll deletes either the current selection or the entire buffer if `all` is true.
+func (b *Buffer) DeleteSelectionOrAll(selStartX, selStartY, selEndX, selEndY int, all bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if all {
+		// Clear entire buffer
+		b.Content = [][]rune{{}}
+		b.CursorX, b.CursorY = 0, 0
+		return
+	}
+
+	// If selection exists, delete it
+	if selStartY > selEndY || (selStartY == selEndY && selStartX > selEndX) {
+		selStartX, selEndX = selEndX, selStartX
+		selStartY, selEndY = selEndY, selStartY
+	}
+
+	if selStartY == selEndY {
+		// single-line selection
+		line := b.Content[selStartY]
+		b.Content[selStartY] = append(line[:selStartX], line[selEndX:]...)
+		b.CursorX = selStartX
+		b.CursorY = selStartY
+	} else {
+		// multi-line selection
+		startLine := b.Content[selStartY][:selStartX]
+		endLine := b.Content[selEndY][selEndX:]
+		b.Content[selStartY] = append(startLine, endLine...)
+		// remove intermediate lines
+		b.Content = append(b.Content[:selStartY+1], b.Content[selEndY+1:]...)
+		b.CursorX = selStartX
+		b.CursorY = selStartY
+	}
+}
+
 // CutSelection removes the selection and returns the text
 func (buf *Buffer) CutSelection(selStartX, selStartY, selEndX, selEndY int) []rune {
 	text := buf.CopySelection(selStartX, selStartY, selEndX, selEndY)
@@ -364,4 +417,13 @@ func (b *Buffer) ParentFolder() string {
 		return "."
 	}
 	return filepath.Dir(b.File)
+}
+
+func (b *Buffer) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.Content = [][]rune{{}}
+	b.CursorX = 0
+	b.CursorY = 0
 }
