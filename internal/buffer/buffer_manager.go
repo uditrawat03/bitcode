@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,39 +21,29 @@ type BufferManager struct {
 }
 
 func NewBufferManager(ctx context.Context, lspServer *lsp.Client) *BufferManager {
-	bm := &BufferManager{buffers: make(map[string]*Buffer), lsp: lspServer, ctx: ctx}
-
-	return bm
-}
-
-func (bm *BufferManager) Open(path string) *Buffer {
-	bm.mu.Lock()
-	defer bm.mu.Unlock()
-	if buf, ok := bm.buffers[path]; ok {
-		bm.active = buf
-		return buf
+	bm := &BufferManager{
+		buffers: make(map[string]*Buffer),
+		lsp:     lspServer,
+		ctx:     ctx,
 	}
-	buf := NewBuffer(path, bm.lsp)
-	bm.buffers[path] = buf
-	bm.active = buf
 
-	if bm.lsp != nil {
-		bm.lsp.OnDiagnostics(func(uri string, diags []lsp.Diagnostic) {
+	if lspServer != nil {
+		// Diagnostics
+		lspServer.OnDiagnostics(func(uri string, diags []lsp.Diagnostic) {
 			bm.mu.RLock()
 			buf, ok := bm.buffers[TrimUri(uri)]
 			bm.mu.RUnlock()
 			if !ok {
 				return
 			}
-
 			buf.UpdateDiagnostics(diags)
-
 			for _, d := range diags {
-				go buf.RequestCodeActions(bm.ctx, d.Range)
+				go buf.RequestCodeActions(d.Range, diags)
 			}
 		})
 
-		bm.lsp.OnCodeAction(func(uri string, actions []lsp.CodeAction) {
+		// Code actions
+		lspServer.OnCodeAction(func(uri string, actions []lsp.CodeAction) {
 			bm.mu.RLock()
 			defer bm.mu.RUnlock()
 			if buf, ok := bm.buffers[TrimUri(uri)]; ok {
@@ -61,7 +52,34 @@ func (bm *BufferManager) Open(path string) *Buffer {
 				buf.mu.Unlock()
 			}
 		})
+
+		// Completion
+		lspServer.OnCompletion(func(uri string, items []lsp.CompletionItem) {
+			bm.mu.RLock()
+			buf, ok := bm.buffers[TrimUri(uri)]
+			bm.mu.RUnlock()
+			if !ok || len(items) == 0 {
+				return
+			}
+			buf.mu.Lock()
+			buf.Completions = items
+			buf.mu.Unlock()
+		})
 	}
+
+	return bm
+}
+
+func (bm *BufferManager) Open(path string) *Buffer {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	// if buf, ok := bm.buffers[path]; ok {
+	// 	bm.active = buf
+	// 	return buf
+	// }
+	buf := NewBuffer(bm.ctx, bm.lsp, path)
+	bm.buffers[path] = buf
+	bm.active = buf
 
 	return buf
 }
@@ -92,6 +110,26 @@ func (bm *BufferManager) Close(path string) {
 			bm.active = nil
 		}
 	}
+}
+
+func (bm *BufferManager) ListFilesInCwd() []string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return []string{}
+	}
+
+	var files []string
+	filepath.WalkDir(cwd, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip errors
+		}
+		if !d.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	return files
 }
 
 func detectLanguage(path string) string {

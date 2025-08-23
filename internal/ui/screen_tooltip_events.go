@@ -1,10 +1,10 @@
-package editor
+package ui
 
 import "github.com/uditrawat03/bitcode/internal/tooltip"
 
-func (ed *Editor) ShowTooltip(x, y int, text string, items []string) {
+func (sm *ScreenManager) ShowTooltip(x, y int, text string, items []string) {
 	if len(items) > 0 {
-		ed.tooltip = tooltip.Tooltip{
+		sm.tooltip = tooltip.Tooltip{
 			Visible:  true,
 			Type:     tooltip.TooltipList,
 			X:        x,
@@ -13,7 +13,7 @@ func (ed *Editor) ShowTooltip(x, y int, text string, items []string) {
 			Selected: 0,
 		}
 	} else if text != "" {
-		ed.tooltip = tooltip.Tooltip{
+		sm.tooltip = tooltip.Tooltip{
 			Visible: true,
 			Type:    tooltip.TooltipText,
 			X:       x,
@@ -21,10 +21,10 @@ func (ed *Editor) ShowTooltip(x, y int, text string, items []string) {
 			Content: text,
 		}
 	} else {
-		ed.HideTooltip()
+		sm.HideTooltip()
 	}
 }
 
-func (ed *Editor) HideTooltip() {
+func (ed *ScreenManager) HideTooltip() {
 	ed.tooltip.Close()
 }

@@ -6,6 +6,14 @@ import (
 	"fmt"
 )
 
+type CodeAction struct {
+	Title       string         `json:"title"`
+	Kind        string         `json:"kind,omitempty"`
+	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
+	Edit        *WorkspaceEdit `json:"edit,omitempty"`
+	Command     *Command       `json:"command,omitempty"`
+}
+
 type CodeActionContext struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
@@ -17,20 +25,34 @@ type CodeActionParams struct {
 }
 
 func (s *Client) OnCodeAction(handler func(uri string, actions []CodeAction)) {
-	s.RegisterHandler("textDocument/codeAction", func(_ context.Context, raw json.RawMessage) {
-		var actions []CodeAction
-		if err := json.Unmarshal(raw, &actions); err == nil {
-			handler("", actions)
+	s.RegisterHandler("textDocument/codeAction", func(ctx context.Context, raw json.RawMessage) {
+		// LSP responses can be wrapped in { "jsonrpc": "2.0", "id": 1, "result": [...] }
+		type Response struct {
+			ID     interface{}      `json:"id"`
+			Result []CodeAction     `json:"result"`
+			Error  *json.RawMessage `json:"error,omitempty"`
+		}
+
+		var resp Response
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return
+		}
+
+		if resp.Result != nil {
+			// For now we don’t have uri info in the response; you may store it in a request map
+			handler("", resp.Result)
 		}
 	})
 }
 
-func (s *Client) CodeAction(ctx context.Context, uri string, rng Range) ([]CodeAction, error) {
+func (s *Client) CodeAction(ctx context.Context, uri string, rng Range, diags []Diagnostic) ([]CodeAction, error) {
 	params := CodeActionParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Range:        rng,
-		Context:      CodeActionContext{Diagnostics: []Diagnostic{}},
+		Context:      CodeActionContext{Diagnostics: diags},
 	}
+
+	s.logger.Println("[CodeAction]", params)
 
 	ch, err := s.SendRequest(ctx, "textDocument/codeAction", params)
 	if err != nil {

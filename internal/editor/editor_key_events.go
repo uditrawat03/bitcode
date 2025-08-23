@@ -30,6 +30,13 @@ func (ed *Editor) isTypingKey(ev *tcell.EventKey) bool {
 	}
 }
 
+func isCompletionTrigger(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		r == '.' || r == '_' // you can add more trigger characters
+}
+
 func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	if !ed.focused || ed.buffer == nil {
 		return
@@ -50,32 +57,6 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.selStartY = ed.buffer.CursorY
 	}
 
-	if ed.tooltip.Visible {
-		switch ev.Key() {
-		case tcell.KeyUp:
-			ed.tooltip.Prev()
-			return
-		case tcell.KeyDown:
-			ed.tooltip.Next()
-			return
-		case tcell.KeyEnter:
-			ed.tooltip.Apply(func(item string) {
-				// TODO: hook this to actual action in editor
-				ed.buffer.InsertRune('\n')
-				for _, r := range item {
-					ed.buffer.InsertRune(r)
-				}
-			})
-			return
-		case tcell.KeyEsc:
-			ed.tooltip.Close()
-			return
-		default:
-			ed.tooltip.Close()
-			return
-		}
-	}
-
 	switch ev.Key() {
 	case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
 		ed.handleCursorMovement(ev)
@@ -91,7 +72,6 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.handlePageDown()
 	case tcell.KeyTab:
 		ed.handleTab()
-		ed.ShowCompletion(ed.ctx)
 	case tcell.KeyDelete:
 		ed.handleDelete()
 	case tcell.KeyEnter:
@@ -116,6 +96,10 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.ShowCodeActions()
 	default:
 		ed.handleRune(ev)
+		// Trigger live completion for certain characters
+		if ev.Rune() != 0 && isCompletionTrigger(ev.Rune()) {
+			ed.ShowCompletion()
+		}
 	}
 
 	// Update selection end for shift-selection

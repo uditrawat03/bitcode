@@ -6,23 +6,69 @@ import (
 	"fmt"
 )
 
-// CompletionList follows the LSP spec for completion responses
+// --- LSP structs ---
+
+type CompletionContext struct {
+	TriggerKind      int    `json:"triggerKind"`                // 1 = Invoked, 2 = TriggerCharacter, 3 = TriggerForIncompleteCompletions
+	TriggerCharacter string `json:"triggerCharacter,omitempty"` // Character triggering completion
+}
+
+type CompletionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	Context      *CompletionContext     `json:"context,omitempty"`
+}
+
+type CompletionItem struct {
+	Label         string `json:"label"`
+	Kind          int    `json:"kind,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+	Documentation string `json:"documentation,omitempty"`
+	InsertText    string `json:"insertText,omitempty"`
+}
+
 type CompletionList struct {
-	IsIncomplete bool             `json:"isIncomplete,omitempty"`
+	IsIncomplete bool             `json:"isIncomplete"`
 	Items        []CompletionItem `json:"items"`
 }
 
-func (s *Client) Completion(ctx context.Context, uri string, pos Position) ([]CompletionItem, error) {
-	params := struct {
-		TextDocument struct {
-			URI string `json:"uri"`
-		} `json:"textDocument"`
-		Position Position `json:"position"`
-	}{
-		TextDocument: struct {
-			URI string `json:"uri"`
-		}{URI: uri},
-		Position: pos,
+// --- Completion client methods ---
+
+func (c *Client) OnCompletion(handler func(uri string, items []CompletionItem)) {
+	c.RegisterHandler("textDocument/completion", func(ctx context.Context, raw json.RawMessage) {
+		type Response struct {
+			ID     interface{}      `json:"id"`
+			Result json.RawMessage  `json:"result"`
+			Error  *json.RawMessage `json:"error,omitempty"`
+		}
+		var resp Response
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return
+		}
+		if resp.Result == nil {
+			return
+		}
+
+		// Try CompletionList first
+		var list CompletionList
+		if err := json.Unmarshal(resp.Result, &list); err == nil && len(list.Items) > 0 {
+			handler("", list.Items)
+			return
+		}
+
+		// Try raw []CompletionItem
+		var items []CompletionItem
+		if err := json.Unmarshal(resp.Result, &items); err == nil && len(items) > 0 {
+			handler("", items)
+		}
+	})
+}
+
+func (s *Client) Completion(ctx context.Context, uri string, pos Position, ctxData *CompletionContext) ([]CompletionItem, error) {
+	params := CompletionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     pos,
+		Context:      ctxData,
 	}
 
 	ch, err := s.SendRequest(ctx, "textDocument/completion", params)
@@ -42,13 +88,13 @@ func (s *Client) Completion(ctx context.Context, uri string, pos Position) ([]Co
 			return nil, nil
 		}
 
-		// Try CompletionList first
+		// CompletionList
 		var list CompletionList
 		if err := json.Unmarshal(*resp.Result, &list); err == nil && len(list.Items) > 0 {
 			return list.Items, nil
 		}
 
-		// Otherwise, try a raw []CompletionItem
+		// raw []CompletionItem
 		var items []CompletionItem
 		if err := json.Unmarshal(*resp.Result, &items); err == nil {
 			return items, nil

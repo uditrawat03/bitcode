@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -40,11 +39,6 @@ type Message struct {
 	Params  *json.RawMessage `json:"params,omitempty"`
 	Result  *json.RawMessage `json:"result,omitempty"`
 	Error   *ResponseError   `json:"error,omitempty"`
-}
-
-type ResponseError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
 }
 
 // NewServer creates a new LSP server
@@ -140,7 +134,11 @@ func (s *Client) SendNotification(method string, params interface{}) {
 	}
 
 	if params != nil {
-		raw, _ := json.Marshal(params)
+		raw, err := json.Marshal(params)
+		if err != nil {
+			s.logger.Printf("failed to marshal params for %s: %v", method, err)
+			return
+		}
 		rm := json.RawMessage(raw)
 		msg.Params = &rm
 	}
@@ -174,6 +172,7 @@ func (s *Client) writeLoop() {
 
 func (s *Client) readLoop(stdout io.ReadCloser) {
 	reader := bufio.NewReader(stdout)
+
 	for {
 		select {
 		case <-s.stopSignal:
@@ -181,34 +180,58 @@ func (s *Client) readLoop(stdout io.ReadCloser) {
 		default:
 		}
 
-		header, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				s.logger.Println("LSP server closed stdout")
+		// ---- 1. Read headers ----
+		headers := make(map[string]string)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					s.logger.Println("LSP server closed stdout")
+				} else {
+					s.logger.Printf("Error reading header: %v", err)
+				}
+				return
 			}
-			return
+
+			line = strings.TrimSpace(line)
+			if line == "" {
+				break // end of headers
+			}
+
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				headers[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
 		}
 
-		if !strings.HasPrefix(header, "Content-Length:") {
+		// ---- 2. Parse content length ----
+		contentLengthStr, ok := headers["Content-Length"]
+		if !ok {
+			s.logger.Println("Missing Content-Length header")
 			continue
 		}
 
 		var contentLength int
-		fmt.Sscanf(header, "Content-Length: %d", &contentLength)
-		_, _ = reader.ReadString('\n') // skip blank line
+		fmt.Sscanf(contentLengthStr, "%d", &contentLength)
 
+		// ---- 3. Read body ----
 		content := make([]byte, contentLength)
-		if _, err = io.ReadFull(reader, content); err != nil {
-			s.logger.Printf("Error reading JSON-RPC content: %v", err)
+		if _, err := io.ReadFull(reader, content); err != nil {
+			s.logger.Printf("Error reading JSON-RPC body: %v", err)
 			continue
 		}
 
+		// ---- 4. Parse JSON ----
 		var msg Message
 		if err := json.Unmarshal(content, &msg); err != nil {
 			s.logger.Printf("Failed to unmarshal JSON-RPC: %v", err)
 			continue
 		}
 
+		// Debug: log raw JSON instead of struct pointers
+		s.logger.Printf("[reading loop] %s", content)
+
+		// ---- 5. Dispatch ----
 		s.dispatch(msg)
 	}
 }
@@ -244,67 +267,4 @@ func (s *Client) dispatch(msg Message) {
 // RegisterHandler lets IDE components listen for notifications
 func (s *Client) RegisterHandler(method string, handler func(context.Context, json.RawMessage)) {
 	s.handlers[method] = handler
-}
-
-// ---------------------- LSP Helpers ----------------------
-
-func (s *Client) Initialize(rootURI string) (chan Message, error) {
-	return s.SendRequest(s.ctx, "initialize", map[string]interface{}{
-		"processId": os.Getpid(),
-		"clientInfo": map[string]interface{}{
-			"name":    "bitcode",
-			"version": "0.0.0",
-		},
-		"rootUri":      rootURI,
-		"capabilities": map[string]interface{}{},
-	})
-}
-
-func (s *Client) Initialized() {
-	s.SendNotification("initialized", map[string]interface{}{})
-}
-
-func (s *Client) SendDidOpen(filePath, content, language string) {
-	s.versionMu.Lock()
-	s.fileVer[filePath] = 1
-	version := s.fileVer[filePath]
-	s.versionMu.Unlock()
-
-	s.SendNotification("textDocument/didOpen", map[string]interface{}{
-		"textDocument": map[string]interface{}{
-			"uri":        filePath,
-			"languageId": language,
-			"version":    version,
-			"text":       content,
-		},
-	})
-}
-
-func (s *Client) SendDidChange(filePath, content string) {
-	s.versionMu.Lock()
-	s.fileVer[filePath]++
-	version := s.fileVer[filePath]
-	s.versionMu.Unlock()
-
-	s.SendNotification("textDocument/didChange", map[string]interface{}{
-		"textDocument": map[string]interface{}{
-			"uri":     filePath,
-			"version": version,
-		},
-		"contentChanges": []map[string]string{
-			{"text": content},
-		},
-	})
-}
-
-func (s *Client) SendDidSave(filePath string) {
-	s.SendNotification("textDocument/didSave", map[string]interface{}{
-		"textDocument": map[string]string{"uri": filePath},
-	})
-}
-
-func (s *Client) SendDidClose(filePath string) {
-	s.SendNotification("textDocument/didClose", map[string]interface{}{
-		"textDocument": map[string]string{"uri": filePath},
-	})
 }

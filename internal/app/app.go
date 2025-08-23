@@ -46,14 +46,22 @@ func (app *App) Initialize() error {
 	screen.EnablePaste()
 
 	app.screen = screen
-	app.ui = ui.CreateScreenManager(app.ctx, app.lspServer, cwd)
+	app.ui = ui.CreateScreenManager(app.ctx, app.logger, app.lspServer, cwd)
 
 	width, height := screen.Size()
 	app.ui.InitComponents(width, height)
 
-	app.lspServer.Start("/var/www/html/MindFreak/GO/lsp-server/main", "--stdio")
+	// app.lspServer.Start("/var/www/html/MindFreak/GO/lsp-server/main", "--stdio")
 
-	app.lspServer.Initialize(cwd)
+	app.lspServer.Start("phpactor", "language-server")
+
+	rootUri := "file://" + cwd
+	_, err = app.lspServer.Initialize(rootUri)
+	if err != nil {
+		return err
+	}
+
+	app.lspServer.Initialized()
 
 	return nil
 }
@@ -69,7 +77,7 @@ func (app *App) Run() {
 
 		switch ev := event.(type) {
 		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape && !app.ui.IsDialogOpen() {
+			if ev.Key() == tcell.KeyEscape && !app.ui.IsTooltipVisible() && !app.ui.IsDialogOpen() {
 				app.running = false
 			} else {
 				app.ui.HandleKey(ev)
