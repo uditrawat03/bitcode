@@ -6,16 +6,6 @@ import (
 	"fmt"
 )
 
-// ---- Request Params ----
-type TextDocumentIdentifier struct {
-	URI string `json:"uri"`
-}
-
-type TextDocumentPositionParams struct {
-	TextDocument TextDocumentIdentifier `json:"textDocument"`
-	Position     Position               `json:"position"`
-}
-
 type CodeActionContext struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
@@ -24,6 +14,15 @@ type CodeActionParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 	Range        Range                  `json:"range"`
 	Context      CodeActionContext      `json:"context"`
+}
+
+func (s *Client) OnCodeAction(handler func(uri string, actions []CodeAction)) {
+	s.RegisterHandler("textDocument/codeAction", func(_ context.Context, raw json.RawMessage) {
+		var actions []CodeAction
+		if err := json.Unmarshal(raw, &actions); err == nil {
+			handler("", actions)
+		}
+	})
 }
 
 func (s *Client) CodeAction(ctx context.Context, uri string, rng Range) ([]CodeAction, error) {

@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"context"
+
 	"github.com/gdamore/tcell/v2"
-	dialog "github.com/uditrawat03/bitcode/internal/Dialog"
 	"github.com/uditrawat03/bitcode/internal/buffer"
+	"github.com/uditrawat03/bitcode/internal/dialog"
 	"github.com/uditrawat03/bitcode/internal/editor"
 	"github.com/uditrawat03/bitcode/internal/layout"
 	lsp "github.com/uditrawat03/bitcode/internal/lsp_client"
@@ -22,6 +24,7 @@ type Focusable interface {
 }
 
 type ScreenManager struct {
+	ctx           context.Context
 	layoutManager *layout.LayoutManager
 	bufferManager *buffer.BufferManager
 	screen        tcell.Screen
@@ -38,10 +41,11 @@ type ScreenManager struct {
 	rootPath   string
 }
 
-func CreateScreenManager(lsp *lsp.Client, rootPath string) *ScreenManager {
+func CreateScreenManager(ctx context.Context, lsp *lsp.Client, rootPath string) *ScreenManager {
 	sm := &ScreenManager{
+		ctx:           ctx,
 		layoutManager: layout.CreateLayoutManager(),
-		bufferManager: buffer.NewBufferManager(lsp),
+		bufferManager: buffer.NewBufferManager(ctx, lsp),
 		rootPath:      rootPath,
 	}
 	return sm
@@ -55,11 +59,11 @@ func (sm *ScreenManager) InitComponents(screenWidth, screenHeight int) {
 
 	// TopBar
 	tb := l.GetTopBarArea(screenWidth, screenHeight)
-	sm.topBar = topbar.CreateTopBar(tb.X, tb.Y, tb.Width, tb.Height)
+	sm.topBar = topbar.CreateTopBar(sm.ctx, tb.X, tb.Y, tb.Width, tb.Height)
 
 	// Sidebar
 	sb := l.GetSidebarArea(screenWidth, screenHeight)
-	sm.sidebar = sidebar.CreateSidebar(sb.X, sb.Y, sb.Width, sb.Height, sm.rootPath)
+	sm.sidebar = sidebar.CreateSidebar(sm.ctx, sb.X, sb.Y, sb.Width, sb.Height, sm.rootPath)
 	sm.sidebar.SetOnFileOpen(func(path string) {
 		buf := sm.bufferManager.Open(path)
 		sm.editor.SetBuffer(buf)
@@ -73,7 +77,7 @@ func (sm *ScreenManager) InitComponents(screenWidth, screenHeight int) {
 
 	// Editor
 	ed := l.GetEditorArea(screenWidth, screenHeight)
-	sm.editor = editor.CreateEditor(ed.X, ed.Y, ed.Width, ed.Height)
+	sm.editor = editor.CreateEditor(sm.ctx, ed.X, ed.Y, ed.Width, ed.Height)
 	sm.editor.SetFocusCallback(func() {
 		sm.focusOrder[sm.focusedIdx].Blur()
 		sm.focusedIdx = 1 // editor index in focusOrder
@@ -82,7 +86,7 @@ func (sm *ScreenManager) InitComponents(screenWidth, screenHeight int) {
 
 	// StatusBar
 	st := l.GetStatusBarArea(screenWidth, screenHeight)
-	sm.statusBar = statusbar.CreateStatusBar(st.X, st.Y, st.Width, st.Height)
+	sm.statusBar = statusbar.CreateStatusBar(sm.ctx, st.X, st.Y, st.Width, st.Height)
 
 	// Set focus order
 	sm.focusOrder = []Focusable{

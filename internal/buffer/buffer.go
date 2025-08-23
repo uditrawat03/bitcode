@@ -6,11 +6,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	lsp "github.com/uditrawat03/bitcode/internal/lsp_client"
+	"github.com/uditrawat03/bitcode/internal/utils"
 )
 
 type Buffer struct {
@@ -19,7 +19,7 @@ type Buffer struct {
 	CursorX    int
 	CursorY    int
 	mu         sync.RWMutex
-	lsp        *lsp.Client
+	LspClient  *lsp.Client
 	debounce   *time.Timer
 	debounceMu sync.Mutex
 
@@ -31,6 +31,8 @@ type Buffer struct {
 	undoStack  []snapshot
 	redoStack  []snapshot
 	maxHistory int
+
+	logger *log.Logger
 }
 
 type snapshot struct {
@@ -42,16 +44,21 @@ type snapshot struct {
 // ---------------- Constructors -----------------
 
 func NewBuffer(path string, lspServer *lsp.Client) *Buffer {
-	buf := &Buffer{File: path, lsp: lspServer}
+	buf := &Buffer{File: path, LspClient: lspServer}
+
+	logger, _ := utils.GetLogger("./log/buffer.log")
+
+	buf.logger = logger
+
 	if path != "" {
 		buf.Load()
 	} else {
 		buf.Content = [][]rune{{}}
 	}
 
-	if buf.lsp != nil && path != "" {
+	if buf.LspClient != nil && path != "" {
 		lang := detectLanguage(path)
-		buf.lsp.SendDidOpen(path, buf.ContentAsString(), lang)
+		buf.LspClient.SendDidOpen(buf.URI(), buf.ContentAsString(), lang)
 	}
 
 	buf.mu.Lock()
@@ -100,8 +107,8 @@ func (b *Buffer) Save() {
 	}
 	writer.Flush()
 
-	if b.lsp != nil {
-		b.lsp.SendDidSave(b.File)
+	if b.LspClient != nil {
+		b.LspClient.SendDidSave(b.URI())
 	}
 }
 
@@ -121,7 +128,7 @@ func (b *Buffer) ContentAsString() string {
 }
 
 func (b *Buffer) scheduleDidChange() {
-	if b.lsp == nil || b.File == "" {
+	if b.LspClient == nil || b.File == "" {
 		return
 	}
 
@@ -136,7 +143,7 @@ func (b *Buffer) scheduleDidChange() {
 		b.mu.RLock()
 		text := b.contentAsStringLocked()
 		b.mu.RUnlock()
-		b.lsp.SendDidChange(b.File, text)
+		b.LspClient.SendDidChange(b.URI(), text)
 	})
 }
 
@@ -171,14 +178,15 @@ func (b *Buffer) Clear() {
 func (b *Buffer) UpdateDiagnostics(diags []lsp.Diagnostic) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	b.Diagnostics = diags
 }
 
 func (b *Buffer) RequestHover(ctx context.Context, pos lsp.Position) error {
-	if b.lsp == nil {
+	if b.LspClient == nil {
 		return nil
 	}
-	hover, err := b.lsp.Hover(ctx, b.File, pos)
+	hover, err := b.LspClient.Hover(ctx, b.URI(), pos)
 	if err != nil {
 		return err
 	}
@@ -189,10 +197,10 @@ func (b *Buffer) RequestHover(ctx context.Context, pos lsp.Position) error {
 }
 
 func (b *Buffer) RequestCompletions(ctx context.Context, pos lsp.Position) error {
-	if b.lsp == nil {
+	if b.LspClient == nil {
 		return nil
 	}
-	items, err := b.lsp.Completion(ctx, b.File, pos)
+	items, err := b.LspClient.Completion(ctx, b.URI(), pos)
 	if err != nil {
 		return err
 	}
@@ -203,10 +211,10 @@ func (b *Buffer) RequestCompletions(ctx context.Context, pos lsp.Position) error
 }
 
 func (b *Buffer) RequestCodeActions(ctx context.Context, rng lsp.Range) error {
-	if b.lsp == nil {
+	if b.LspClient == nil {
 		return nil
 	}
-	actions, err := b.lsp.CodeAction(ctx, b.File, rng)
+	actions, err := b.LspClient.CodeAction(ctx, b.URI(), rng)
 	if err != nil {
 		return err
 	}
@@ -516,115 +524,4 @@ func cloneLines(src [][]rune) [][]rune {
 		dst[i] = line
 	}
 	return dst
-}
-
-// ---------------- BufferManager -----------------
-
-type BufferManager struct {
-	buffers map[string]*Buffer
-	active  *Buffer
-	mu      sync.RWMutex
-	lsp     *lsp.Client
-}
-
-func NewBufferManager(lspServer *lsp.Client) *BufferManager {
-	bm := &BufferManager{buffers: make(map[string]*Buffer), lsp: lspServer}
-
-	if lspServer != nil {
-		// Hook diagnostics into buffers
-		lspServer.OnDiagnostics(func(uri string, diags []lsp.Diagnostic) {
-			bm.mu.RLock()
-			defer bm.mu.RUnlock()
-			if buf, ok := bm.buffers[uri]; ok {
-				buf.UpdateDiagnostics(diags)
-			}
-		})
-	}
-
-	return bm
-}
-
-func (bm *BufferManager) Open(path string) *Buffer {
-	bm.mu.Lock()
-	defer bm.mu.Unlock()
-	if buf, ok := bm.buffers[path]; ok {
-		bm.active = buf
-		return buf
-	}
-	buf := NewBuffer(path, bm.lsp)
-	bm.buffers[path] = buf
-	bm.active = buf
-	return buf
-}
-
-func (bm *BufferManager) Active() *Buffer {
-	bm.mu.RLock()
-	defer bm.mu.RUnlock()
-	return bm.active
-}
-
-func (bm *BufferManager) SaveActive() {
-	bm.mu.RLock()
-	defer bm.mu.RUnlock()
-	if bm.active != nil {
-		bm.active.Save()
-	}
-}
-
-func (bm *BufferManager) Close(path string) {
-	bm.mu.Lock()
-	defer bm.mu.Unlock()
-	if buf, ok := bm.buffers[path]; ok {
-		delete(bm.buffers, path)
-		if bm.lsp != nil {
-			bm.lsp.SendDidClose(path)
-		}
-		if bm.active == buf {
-			bm.active = nil
-		}
-	}
-}
-
-func detectLanguage(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".go":
-		return "go"
-	case ".ts":
-		return "typescript"
-	case ".tsx":
-		return "typescriptreact"
-	case ".js":
-		return "javascript"
-	case ".jsx":
-		return "javascriptreact"
-	case ".py":
-		return "python"
-	case ".java":
-		return "java"
-	case ".c", ".h":
-		return "c"
-	case ".cpp", ".hpp", ".cc", ".cxx":
-		return "cpp"
-	case ".rs":
-		return "rust"
-	case ".cs":
-		return "csharp"
-	case ".php":
-		return "php"
-	case ".sh", ".bash", ".zsh":
-		return "shellscript"
-	case ".html", ".htm":
-		return "html"
-	case ".css":
-		return "css"
-	case ".json":
-		return "json"
-	case ".yaml", ".yml":
-		return "yaml"
-	case ".md":
-		return "markdown"
-	default:
-		return "plaintext"
-	}
 }

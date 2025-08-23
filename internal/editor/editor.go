@@ -1,10 +1,12 @@
 package editor
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/uditrawat03/bitcode/internal/buffer"
+	"github.com/uditrawat03/bitcode/internal/tooltip"
 )
 
 type Resizable interface {
@@ -12,6 +14,7 @@ type Resizable interface {
 }
 
 type Editor struct {
+	ctx                 context.Context
 	x, y, width, height int
 	scrollY             int
 	focused             bool
@@ -26,6 +29,8 @@ type Editor struct {
 	selEndX       int
 	selEndY       int
 
+	tooltip tooltip.Tooltip
+
 	focusCb func()
 }
 
@@ -33,8 +38,8 @@ func (ed *Editor) SetFocusCallback(cb func()) {
 	ed.focusCb = cb
 }
 
-func CreateEditor(x, y, width, height int) *Editor {
-	return &Editor{x: x, y: y, width: width, height: height}
+func CreateEditor(ctx context.Context, x, y, width, height int) *Editor {
+	return &Editor{ctx: ctx, x: x, y: y, width: width, height: height}
 }
 
 func (ed *Editor) Resize(x, y, w, h int) {
@@ -110,6 +115,35 @@ func (ed *Editor) Draw(screen tcell.Screen) {
 				break
 			}
 			screen.SetContent(ed.x+4+i, ed.y+row, r, nil, currentLineStyle)
+		}
+	}
+
+	if ed.tooltip.Visible {
+		switch ed.tooltip.Type {
+		case tooltip.TooltipText:
+			// draw a simple text box
+			for i, r := range ed.tooltip.Content {
+				if ed.tooltip.X+i < ed.x+ed.width && ed.tooltip.Y < ed.y+ed.height {
+					screen.SetContent(ed.tooltip.X+i, ed.tooltip.Y, r, nil, style)
+				}
+			}
+
+		case tooltip.TooltipList:
+			for idx, item := range ed.tooltip.Items {
+				y := ed.tooltip.Y + idx
+				if y >= ed.y+ed.height {
+					break
+				}
+				itemStyle := style
+				if idx == ed.tooltip.Selected {
+					itemStyle = tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite)
+				}
+				for i, r := range item {
+					if ed.tooltip.X+i < ed.x+ed.width {
+						screen.SetContent(ed.tooltip.X+i, y, r, nil, itemStyle)
+					}
+				}
+			}
 		}
 	}
 

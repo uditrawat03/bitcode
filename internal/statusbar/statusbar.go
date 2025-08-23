@@ -1,18 +1,23 @@
 package statusbar
 
-import "github.com/gdamore/tcell/v2"
+import (
+	"context"
+
+	"github.com/gdamore/tcell/v2"
+)
 
 type Resizable interface {
 	Resize(x, y, w, h int)
 }
 
 type StatusBar struct {
+	ctx                 context.Context
 	x, y, width, height int
 	focused             bool
 }
 
-func CreateStatusBar(x, y, width, height int) *StatusBar {
-	return &StatusBar{x: x, y: y, width: width, height: height}
+func CreateStatusBar(ctx context.Context, x, y, width, height int) *StatusBar {
+	return &StatusBar{ctx: ctx, x: x, y: y, width: width, height: height}
 }
 
 func (sb *StatusBar) Resize(x, y, w, h int) {

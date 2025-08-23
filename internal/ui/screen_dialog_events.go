@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	dialog "github.com/uditrawat03/bitcode/internal/Dialog"
+	"github.com/uditrawat03/bitcode/internal/dialog"
 	"github.com/uditrawat03/bitcode/internal/treeview"
 )
 

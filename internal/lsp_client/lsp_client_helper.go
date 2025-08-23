@@ -29,3 +29,12 @@ type CodeAction struct {
 	Kind        string       `json:"kind,omitempty"`
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 }
+
+type TextDocumentIdentifier struct {
+	URI string `json:"uri"`
+}
+
+type TextDocumentPositionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+}

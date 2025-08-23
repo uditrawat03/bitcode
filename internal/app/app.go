@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -10,6 +11,7 @@ import (
 )
 
 type App struct {
+	ctx       context.Context
 	screen    tcell.Screen
 	ui        *ui.ScreenManager
 	lspServer *lsp.Client
@@ -17,11 +19,12 @@ type App struct {
 	running   bool
 }
 
-func CreateApp(logger *log.Logger) *App {
+func CreateApp(ctx context.Context, logger *log.Logger) *App {
 	return &App{
 		running:   true,
-		lspServer: lsp.NewServer(logger),
+		lspServer: lsp.NewServer(ctx, logger),
 		logger:    logger,
+		ctx:       ctx,
 	}
 }
 
@@ -43,7 +46,7 @@ func (app *App) Initialize() error {
 	screen.EnablePaste()
 
 	app.screen = screen
-	app.ui = ui.CreateScreenManager(app.lspServer, cwd)
+	app.ui = ui.CreateScreenManager(app.ctx, app.lspServer, cwd)
 
 	width, height := screen.Size()
 	app.ui.InitComponents(width, height)

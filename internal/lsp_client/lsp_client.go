@@ -15,6 +15,7 @@ import (
 
 // Server represents a running LSP server
 type Client struct {
+	ctx        context.Context
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
 	stdout     io.ReadCloser
@@ -47,8 +48,9 @@ type ResponseError struct {
 }
 
 // NewServer creates a new LSP server
-func NewServer(logger *log.Logger) *Client {
+func NewServer(ctx context.Context, logger *log.Logger) *Client {
 	return &Client{
+		ctx:             ctx,
 		logger:          logger,
 		fileVer:         make(map[string]int),
 		outgoing:        make(chan Message, 100),
@@ -234,7 +236,7 @@ func (s *Client) dispatch(msg Message) {
 
 	if msg.Method != "" && msg.Params != nil {
 		if handler, ok := s.handlers[msg.Method]; ok {
-			handler(context.Background(), *msg.Params)
+			handler(s.ctx, *msg.Params)
 		}
 	}
 }
@@ -247,7 +249,7 @@ func (s *Client) RegisterHandler(method string, handler func(context.Context, js
 // ---------------------- LSP Helpers ----------------------
 
 func (s *Client) Initialize(rootURI string) (chan Message, error) {
-	return s.SendRequest(context.Background(), "initialize", map[string]interface{}{
+	return s.SendRequest(s.ctx, "initialize", map[string]interface{}{
 		"processId": os.Getpid(),
 		"clientInfo": map[string]interface{}{
 			"name":    "bitcode",
@@ -270,7 +272,7 @@ func (s *Client) SendDidOpen(filePath, content, language string) {
 
 	s.SendNotification("textDocument/didOpen", map[string]interface{}{
 		"textDocument": map[string]interface{}{
-			"uri":        "file://" + filePath,
+			"uri":        filePath,
 			"languageId": language,
 			"version":    version,
 			"text":       content,
@@ -286,7 +288,7 @@ func (s *Client) SendDidChange(filePath, content string) {
 
 	s.SendNotification("textDocument/didChange", map[string]interface{}{
 		"textDocument": map[string]interface{}{
-			"uri":     "file://" + filePath,
+			"uri":     filePath,
 			"version": version,
 		},
 		"contentChanges": []map[string]string{
@@ -297,12 +299,12 @@ func (s *Client) SendDidChange(filePath, content string) {
 
 func (s *Client) SendDidSave(filePath string) {
 	s.SendNotification("textDocument/didSave", map[string]interface{}{
-		"textDocument": map[string]string{"uri": "file://" + filePath},
+		"textDocument": map[string]string{"uri": filePath},
 	})
 }
 
 func (s *Client) SendDidClose(filePath string) {
 	s.SendNotification("textDocument/didClose", map[string]interface{}{
-		"textDocument": map[string]string{"uri": "file://" + filePath},
+		"textDocument": map[string]string{"uri": filePath},
 	})
 }

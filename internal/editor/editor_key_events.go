@@ -50,9 +50,37 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.selStartY = ed.buffer.CursorY
 	}
 
+	if ed.tooltip.Visible {
+		switch ev.Key() {
+		case tcell.KeyUp:
+			ed.tooltip.Prev()
+			return
+		case tcell.KeyDown:
+			ed.tooltip.Next()
+			return
+		case tcell.KeyEnter:
+			ed.tooltip.Apply(func(item string) {
+				// TODO: hook this to actual action in editor
+				ed.buffer.InsertRune('\n')
+				for _, r := range item {
+					ed.buffer.InsertRune(r)
+				}
+			})
+			return
+		case tcell.KeyEsc:
+			ed.tooltip.Close()
+			return
+		default:
+			ed.tooltip.Close()
+			return
+		}
+	}
+
 	switch ev.Key() {
 	case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
 		ed.handleCursorMovement(ev)
+		ed.ShowHover()
+		ed.ShowDiagnostics()
 	case tcell.KeyHome:
 		ed.handleHome()
 	case tcell.KeyEnd:
@@ -63,6 +91,7 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.handlePageDown()
 	case tcell.KeyTab:
 		ed.handleTab()
+		ed.ShowCompletion(ed.ctx)
 	case tcell.KeyDelete:
 		ed.handleDelete()
 	case tcell.KeyEnter:
@@ -83,6 +112,8 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 		ed.buffer.Undo()
 	case tcell.KeyCtrlY:
 		ed.buffer.Redo()
+	case tcell.KeyCtrlL:
+		ed.ShowCodeActions()
 	default:
 		ed.handleRune(ev)
 	}

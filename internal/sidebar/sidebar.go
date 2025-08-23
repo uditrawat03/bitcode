@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"context"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/uditrawat03/bitcode/internal/treeview"
 )
@@ -10,6 +12,7 @@ type Resizable interface {
 }
 
 type Sidebar struct {
+	ctx                 context.Context
 	X, Y, Width, Height int
 	Focused             bool
 	ScrollY             int
@@ -23,8 +26,8 @@ type Sidebar struct {
 	focusCb    func()
 }
 
-func CreateSidebar(x, y, width, height int, cwd string) *Sidebar {
-	return NewSidebar(x, y, width, height, cwd)
+func CreateSidebar(ctx context.Context, x, y, width, height int, cwd string) *Sidebar {
+	return NewSidebar(ctx, x, y, width, height, cwd)
 }
 
 func (sb *Sidebar) Resize(x, y, w, h int) {
@@ -32,8 +35,9 @@ func (sb *Sidebar) Resize(x, y, w, h int) {
 }
 
 // Create a new sidebar
-func NewSidebar(x, y, width, height int, rootPath string) *Sidebar {
+func NewSidebar(ctx context.Context, x, y, width, height int, rootPath string) *Sidebar {
 	return &Sidebar{
+		ctx:    ctx,
 		X:      x,
 		Y:      y,
 		Width:  width,

@@ -1,18 +1,23 @@
 package topbar
 
-import "github.com/gdamore/tcell/v2"
+import (
+	"context"
+
+	"github.com/gdamore/tcell/v2"
+)
 
 type Resizable interface {
 	Resize(x, y, w, h int)
 }
 
 type TopBar struct {
+	ctx                 context.Context
 	x, y, width, height int
 	focused             bool
 }
 
-func CreateTopBar(x, y, width, height int) *TopBar {
-	return &TopBar{x: x, y: y, width: width, height: height}
+func CreateTopBar(ctx context.Context, x, y, width, height int) *TopBar {
+	return &TopBar{ctx: ctx, x: x, y: y, width: width, height: height}
 }
 
 func (tb *TopBar) Resize(x, y, w, h int) {
