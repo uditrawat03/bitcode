@@ -6,15 +6,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/uditrawat03/bitcode/internal/buffer"
-	"github.com/uditrawat03/bitcode/internal/dialog"
-
-	"github.com/uditrawat03/bitcode/internal/editor"
 	"github.com/uditrawat03/bitcode/internal/layout"
 	lsp "github.com/uditrawat03/bitcode/internal/lsp_client"
-	"github.com/uditrawat03/bitcode/internal/sidebar"
-	"github.com/uditrawat03/bitcode/internal/statusbar"
-	"github.com/uditrawat03/bitcode/internal/tooltip"
-	"github.com/uditrawat03/bitcode/internal/topbar"
 )
 
 type Focusable interface {
@@ -23,169 +16,131 @@ type Focusable interface {
 	IsFocused() bool
 	HandleKey(*tcell.EventKey)
 	HandleMouse(*tcell.EventMouse)
-	Draw(tcell.Screen)
 }
 
 type ScreenManager struct {
-	ctx           context.Context
-	logger        *log.Logger
-	layoutManager *layout.LayoutManager
-	bufferManager *buffer.BufferManager
-	screen        tcell.Screen
+	ctx       context.Context
+	screen    tcell.Screen
+	logger    *log.Logger
+	Lm        *layout.LayoutManager
+	Bm        *buffer.BufferManager
+	UIManager *UIManager
 
-	editor    *editor.Editor
-	sidebar   *sidebar.Sidebar
-	topBar    *topbar.TopBar
-	statusBar *statusbar.StatusBar
-
-	dialog  *dialog.Dialog
-	tooltip tooltip.Tooltip
-
-	focusOrder []Focusable
+	focusOrder []UIComponent
 	focusedIdx int
-	rootPath   string
+	running    bool
 }
 
-func CreateScreenManager(ctx context.Context, logger *log.Logger, lsp *lsp.Client, rootPath string) *ScreenManager {
-	sm := &ScreenManager{
-		ctx:           ctx,
-		layoutManager: layout.CreateLayoutManager(),
-		bufferManager: buffer.NewBufferManager(ctx, lsp),
-		logger:        logger,
-		rootPath:      rootPath,
+func NewScreenManager(ctx context.Context, screen tcell.Screen, logger *log.Logger, lsp *lsp.Client) *ScreenManager {
+	lm := layout.CreateLayoutManager()
+	uiManager := NewUIManager(logger, lm)
+
+	return &ScreenManager{
+		ctx:       ctx,
+		screen:    screen,
+		logger:    logger,
+		Lm:        lm,
+		UIManager: uiManager,
+		Bm:        buffer.NewBufferManager(ctx, lsp),
+		running:   true,
 	}
-	return sm
 }
 
-// Initialize components and focus order
-func (sm *ScreenManager) InitComponents(screenWidth, screenHeight int) {
-	// Update layout
-	sm.layoutManager.UpdateLayout(screenWidth, screenHeight)
-	l := sm.layoutManager.GetLayout()
+// RequestRender triggers a redraw
+func (sm *ScreenManager) RequestRender() {
+	sm.Render()
+}
+
+func (sm *ScreenManager) SetupComponents(rootPath string) {
+	sw, sh := sm.screen.Size()
+	sm.Lm.UpdateLayout(sw, sh)
+	l := sm.Lm.GetLayout()
 
 	// TopBar
-	tb := l.GetTopBarArea(screenWidth, screenHeight)
-	sm.topBar = topbar.CreateTopBar(sm.ctx, tb.X, tb.Y, tb.Width, tb.Height)
-
-	// Sidebar
-	sb := l.GetSidebarArea(screenWidth, screenHeight)
-	sm.sidebar = sidebar.CreateSidebar(sm.ctx, sb.X, sb.Y, sb.Width, sb.Height, sm.rootPath)
-	sm.sidebar.SetOnFileOpen(func(path string) {
-		buf := sm.bufferManager.Open(path)
-		sm.editor.SetBuffer(buf)
-		// sm.restoreEditorFocus()
-	})
-
-	sm.sidebar.SetFocusCallback(func() {
-		sm.focusOrder[sm.focusedIdx].Blur()
-		sm.focusedIdx = 0 // sidebar index
-		sm.focusOrder[sm.focusedIdx].Focus()
-	})
-
-	// Editor
-	ed := l.GetEditorArea(screenWidth, screenHeight)
-	sm.editor = editor.CreateEditor(sm.ctx, sm.logger, ed.X, ed.Y, ed.Width, ed.Height)
-	sm.editor.SetFocusCallback(func() {
-		sm.focusOrder[sm.focusedIdx].Blur()
-		sm.focusedIdx = 1 // editor index in focusOrder
-		sm.focusOrder[sm.focusedIdx].Focus()
-	})
-
-	sm.editor.SetTooltipHandler(func(x, y int, content string, list []string) {
-		sm.ShowTooltip(x, y, content, list)
-	})
+	topBar := NewTopBar("Bitcode IDE")
+	rect := l.GetTopBarArea(sw, sh)
+	topBar.SetPosition(rect.X, rect.Y)
+	topBar.Resize(rect.Width, rect.Height)
+	sm.AddComponent(topBar, false)
 
 	// StatusBar
-	st := l.GetStatusBarArea(screenWidth, screenHeight)
-	sm.statusBar = statusbar.CreateStatusBar(sm.ctx, st.X, st.Y, st.Width, st.Height)
+	statusBar := NewBottomBar("Ready")
+	rect = l.GetStatusBarArea(sw, sh)
+	statusBar.SetPosition(rect.X, rect.Y)
+	statusBar.Resize(rect.Width, rect.Height)
+	sm.AddComponent(statusBar, false)
 
-	// Set focus order
-	sm.focusOrder = []Focusable{
-		sm.sidebar,
-		sm.editor,
-		sm.topBar,
-		sm.statusBar,
-	}
+	// Sidebar + TreeView
+	treeView := NewTreeView(rootPath)
+	sidebar := NewSidebar(treeView, sm.Lm.GetLayout().SidebarWidth, sm.RequestRender)
 
+	rect = l.GetSidebarArea(sw, sh)
+	sidebar.SetPosition(rect.X, rect.Y)
+	sidebar.Resize(rect.Width, rect.Height)
+	sm.AddComponent(sidebar, true)
+
+	// Editor
+	editor := NewCodeArea()
+	rect = l.GetEditorArea(sw, sh)
+	editor.SetPosition(rect.X, rect.Y)
+	editor.Resize(rect.Width, rect.Height)
+
+	sm.AddComponent(editor, true)
+
+	sm.focusOrder = []UIComponent{sidebar, editor}
 	sm.focusedIdx = 0
-	sm.focusOrder[sm.focusedIdx].Focus()
+	if f, ok := sm.focusOrder[sm.focusedIdx].(Focusable); ok {
+		f.Focus()
+	}
 }
 
-// Switch focus to next component
-func (sm *ScreenManager) FocusNext() {
-	if sm.dialog != nil {
-		// dialog keeps focus if open
+func (sm *ScreenManager) AddComponent(c UIComponent, focusable bool) {
+	sm.UIManager.AddComponent(c)
+	if focusable {
+		sm.focusOrder = append(sm.focusOrder, c)
+	}
+}
+
+func (sm *ScreenManager) Run() {
+	for sm.running {
+		ev := sm.screen.PollEvent()
+		if ev == nil {
+			continue
+		}
+
+		switch e := ev.(type) {
+		case *tcell.EventKey:
+			sm.handleKey(e)
+		case *tcell.EventResize:
+			sm.screen.Clear()
+			sm.Render()
+		case *tcell.EventMouse:
+			sm.handleMouse(e)
+		}
+	}
+}
+
+func (sm *ScreenManager) handleKey(ev *tcell.EventKey) {
+	if ev.Key() == tcell.KeyEscape {
+		sm.running = false
 		return
 	}
-	sm.focusOrder[sm.focusedIdx].Blur()
-	sm.focusedIdx = (sm.focusedIdx + 1) % len(sm.focusOrder)
-	sm.focusOrder[sm.focusedIdx].Focus()
+	if len(sm.focusOrder) > 0 {
+		if f, ok := sm.focusOrder[sm.focusedIdx].(Focusable); ok {
+			f.HandleKey(ev)
+		}
+	}
 }
 
-// Draw all components
-func (sm *ScreenManager) Draw(screen tcell.Screen) {
-	sm.screen = screen
-	screenWidth, screenHeight := sm.screen.Size()
-	sm.layoutManager.UpdateLayout(screenWidth, screenHeight)
-
-	l := sm.layoutManager.GetLayout()
-	tb := l.GetTopBarArea(screenWidth, screenHeight)
-	sm.topBar.Resize(tb.X, tb.Y, tb.Width, tb.Height)
-
-	sb := l.GetSidebarArea(screenWidth, screenHeight)
-	sm.sidebar.Resize(sb.X, sb.Y, sb.Width, sb.Height)
-
-	ed := l.GetEditorArea(screenWidth, screenHeight)
-	sm.editor.Resize(ed.X, ed.Y, ed.Width, ed.Height)
-
-	st := l.GetStatusBarArea(screenWidth, screenHeight)
-	sm.statusBar.Resize(st.X, st.Y, st.Width, st.Height)
-
-	// Redraw components
-	sm.topBar.Draw(screen)
-	sm.sidebar.Draw(screen)
-	sm.editor.Draw(screen)
-	sm.statusBar.Draw(screen)
-
-	// Draw dialog on top
-	if sm.dialog != nil {
-		sm.dialog.Center(screen)
-		sm.dialog.Draw(screen)
+func (sm *ScreenManager) handleMouse(ev *tcell.EventMouse) {
+	if len(sm.focusOrder) > 0 {
+		if f, ok := sm.focusOrder[sm.focusedIdx].(Focusable); ok {
+			f.HandleMouse(ev)
+		}
 	}
+}
 
-	// if sm.tooltip.Visible {
-	// 	style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
-
-	// 	switch sm.tooltip.Type {
-	// 	case tooltip.TooltipText:
-	// 		for i, r := range sm.tooltip.Content {
-	// 			screen.SetContent(sm.tooltip.X+i, sm.tooltip.Y, r, nil, style)
-	// 		}
-	// 	case tooltip.TooltipList:
-	// 		for idx, item := range sm.tooltip.Items {
-	// 			y := sm.tooltip.Y + idx
-	// 			itemStyle := style
-	// 			if idx == sm.tooltip.Selected {
-	// 				itemStyle = tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite)
-	// 			}
-	// 			for i, r := range item {
-	// 				screen.SetContent(sm.tooltip.X+i, y, r, nil, itemStyle)
-	// 			}
-	// 		}
-	// 	}
-	// }
-
-	if sm.tooltip.Visible {
-		sm.tooltip.Draw(screen)
-	}
-
+func (sm *ScreenManager) Render() {
+	sm.UIManager.RenderAll(sm.screen)
 	sm.screen.Show()
-}
-
-func (sm *ScreenManager) IsTooltipVisible() bool {
-	return sm.tooltip.Visible
-}
-
-func (sm *ScreenManager) IsDialogOpen() bool {
-	return sm.dialog != nil
 }

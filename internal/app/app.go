@@ -21,10 +21,10 @@ type App struct {
 
 func CreateApp(ctx context.Context, logger *log.Logger) *App {
 	return &App{
+		ctx:       ctx,
 		running:   true,
 		lspServer: lsp.NewServer(ctx, logger),
 		logger:    logger,
-		ctx:       ctx,
 	}
 }
 
@@ -44,60 +44,30 @@ func (app *App) Initialize() error {
 
 	screen.EnableMouse()
 	screen.EnablePaste()
-
 	app.screen = screen
-	app.ui = ui.CreateScreenManager(app.ctx, app.logger, app.lspServer, cwd)
 
-	width, height := screen.Size()
-	app.ui.InitComponents(width, height)
+	// Create ScreenManager using new UIComponent + Focusable system
+	app.ui = ui.NewScreenManager(app.ctx, screen, app.logger, app.lspServer)
 
-	// app.lspServer.Start("/var/www/html/MindFreak/GO/lsp-server/main", "--stdio")
+	// Add components to ScreenManager
+	app.ui.SetupComponents(cwd) // We'll define this inside ScreenManager
 
+	// Start LSP server
 	app.lspServer.Start("phpactor", "language-server")
-
 	rootUri := "file://" + cwd
 	_, err = app.lspServer.Initialize(rootUri)
 	if err != nil {
 		return err
 	}
-
 	app.lspServer.Initialized()
 
 	return nil
 }
 
 func (app *App) Run() {
-	app.draw()
-
-	for app.running {
-		event := app.screen.PollEvent()
-		if event == nil {
-			continue
-		}
-
-		switch ev := event.(type) {
-		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape && !app.ui.IsTooltipVisible() && !app.ui.IsDialogOpen() {
-				app.running = false
-			} else {
-				app.ui.HandleKey(ev)
-			}
-		case *tcell.EventResize:
-			app.draw()
-		case *tcell.EventMouse:
-			app.ui.HandleMouse(ev)
-		}
-
-		app.draw()
-	}
-
+	// ScreenManager handles event loop and rendering
+	app.ui.Run()
 	app.logger.Println("Application has exited gracefully.")
-}
-
-func (app *App) draw() {
-	app.screen.Clear()
-	app.ui.Draw(app.screen)
-	app.screen.Show()
 }
 
 func (app *App) Shutdown() {

@@ -45,6 +45,38 @@ func highlightLine(line string) []struct {
 	return result
 }
 
+func GetHighlightLine(line string) []struct {
+	Ch    rune
+	Style tcell.Style
+} {
+	result := make([]struct {
+		Ch    rune
+		Style tcell.Style
+	}, len([]rune(line)))
+
+	// Default style
+	for i, r := range line {
+		result[i].Ch = r
+		result[i].Style = tcell.StyleDefault.Foreground(tcell.ColorWhite)
+	}
+
+	applyRegex := func(re *regexp.Regexp, style tcell.Style) {
+		matches := re.FindAllStringIndex(line, -1)
+		for _, m := range matches {
+			for i := m[0]; i < m[1]; i++ {
+				result[i].Style = style
+			}
+		}
+	}
+
+	applyRegex(keywordRegex, getTokenStyle("keyword"))
+	applyRegex(stringRegex, getTokenStyle("string"))
+	applyRegex(commentRegex, getTokenStyle("comment"))
+	applyRegex(numberRegex, getTokenStyle("number"))
+
+	return result
+}
+
 func getTokenStyle(tokenType string) tcell.Style {
 	switch tokenType {
 	case "keyword":
