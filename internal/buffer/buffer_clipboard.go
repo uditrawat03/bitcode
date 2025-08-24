@@ -50,23 +50,86 @@ func (b *Buffer) DeleteAtCursor(cursorX, cursorY, selStartY, selEndY int, select
 	}
 }
 
-func (b *Buffer) DeleteSelection(selStartX, selStartY, selEndX, selEndY int) {
+// func (b *Buffer) DeleteSelection(selStartX, selStartY, selEndX, selEndY int) {
+// 	b.mu.Lock()
+// 	defer b.mu.Unlock()
+
+// 	b.pushUndoLocked()
+
+// 	sx, sy, ex, ey := normalizeSelection(selStartX, selStartY, selEndX, selEndY)
+// 	if sy == ey {
+// 		line := b.Content[sy]
+// 		b.Content[sy] = append(line[:sx], line[ex:]...)
+// 	} else {
+// 		startLine := b.Content[sy][:sx]
+// 		endLine := b.Content[ey][ex:]
+// 		b.Content[sy] = append(startLine, endLine...)
+// 		b.Content = append(b.Content[:sy+1], b.Content[ey+1:]...)
+// 	}
+// 	b.CursorY, b.CursorX = sy, sx
+// 	b.scheduleDidChange()
+// }
+
+func (b *Buffer) DeleteSelection(sx, sy, ex, ey int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if len(b.Content) == 0 {
+		return
+	}
+
 	b.pushUndoLocked()
 
-	sx, sy, ex, ey := normalizeSelection(selStartX, selStartY, selEndX, selEndY)
+	// Clamp Y coordinates
+	if sy < 0 {
+		sy = 0
+	} else if sy >= len(b.Content) {
+		sy = len(b.Content) - 1
+	}
+
+	if ey < 0 {
+		ey = 0
+	} else if ey >= len(b.Content) {
+		ey = len(b.Content) - 1
+	}
+
+	// Clamp X coordinates
+	startLine := b.Content[sy]
+	if sx < 0 {
+		sx = 0
+	} else if sx > len(startLine) {
+		sx = len(startLine)
+	}
+
+	endLine := b.Content[ey]
+	if ex < 0 {
+		ex = 0
+	} else if ex > len(endLine) {
+		ex = len(endLine)
+	}
+
+	// Normalize selection: sy <= ey, sx <= ex for single line
+	if sy > ey || (sy == ey && sx > ex) {
+		sx, ex = ex, sx
+		sy, ey = ey, sy
+	}
+
 	if sy == ey {
+		// Single-line deletion
 		line := b.Content[sy]
 		b.Content[sy] = append(line[:sx], line[ex:]...)
 	} else {
-		startLine := b.Content[sy][:sx]
-		endLine := b.Content[ey][ex:]
-		b.Content[sy] = append(startLine, endLine...)
-		b.Content = append(b.Content[:sy+1], b.Content[ey+1:]...)
+		// Multi-line deletion
+		b.Content[sy] = append(b.Content[sy][:sx], b.Content[ey][ex:]...)
+		if ey+1 < len(b.Content) {
+			b.Content = append(b.Content[:sy+1], b.Content[ey+1:]...)
+		} else {
+			b.Content = b.Content[:sy+1]
+		}
 	}
-	b.CursorY, b.CursorX = sy, sx
+
+	// Move cursor to start of deleted selection
+	b.CursorX, b.CursorY = sx, sy
 	b.scheduleDidChange()
 }
 

@@ -116,8 +116,6 @@ func (t *Tooltip) Close() {
 	t.Selected = 0
 }
 
-// --- Rendering ---
-
 func (t *Tooltip) Draw(screen tcell.Screen) {
 	if !t.Visible {
 		return
@@ -232,8 +230,6 @@ func (t *Tooltip) Draw(screen tcell.Screen) {
 		}
 	}
 }
-
-// --- Helpers ---
 
 func splitLines(s string) []string {
 	if s == "" {

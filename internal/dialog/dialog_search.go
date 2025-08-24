@@ -108,6 +108,7 @@ func (fs *FileSearchDialog) draw(d *Dialog, s tcell.Screen) {
 	selectedStyle := tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite)
 	boldStyle := tcell.StyleDefault.Bold(true).Foreground(tcell.ColorWhite).Background(tcell.NewRGBColor(30, 30, 30))
 	selectedBold := tcell.StyleDefault.Bold(true).Foreground(tcell.ColorBlack).Background(tcell.ColorWhite)
+	inputBoxStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.NewRGBColor(50, 50, 50))
 
 	// Draw border
 	for y := 0; y < d.Height; y++ {
@@ -132,19 +133,25 @@ func (fs *FileSearchDialog) draw(d *Dialog, s tcell.Screen) {
 	}
 
 	// Title
-	title := d.title
-	for i, r := range title {
+	for i, r := range d.title {
 		if i >= d.Width-4 {
 			break
 		}
 		s.SetContent(d.X+2+i, d.Y, r, nil, titleStyle)
 	}
 
-	// Input line (top box)
+	// Input box (top, under title)
+	inputY := d.Y + 2
+	for x := 1; x < d.Width-1; x++ {
+		s.SetContent(d.X+x, inputY, ' ', nil, inputBoxStyle)
+	}
+
+	// Input line
 	inputLine := "> " + string(d.input)
 	for i := 0; i < d.Width-2 && i < len(inputLine); i++ {
 		s.SetContent(d.X+1+i, d.Y+2, rune(inputLine[i]), nil, inputStyle)
 	}
+
 	if d.focused {
 		cursorPos := 2 + d.cursor
 		if cursorPos < d.Width-2 {
@@ -156,10 +163,15 @@ func (fs *FileSearchDialog) draw(d *Dialog, s tcell.Screen) {
 		s.HideCursor()
 	}
 
-	// Draw filtered list with file name bold and path right-aligned
+	// Draw filtered list with full line highlight
 	startY := d.Y + 4
 	maxItems := d.Height - 6
 	for i := 0; i < maxItems && i < len(fs.filtered); i++ {
+		fullPath := fs.filtered[i]
+		name := filepath.Base(fullPath)
+		relPath := strings.TrimPrefix(fullPath, fs.cwd+"/")
+		relPath = strings.ReplaceAll(relPath, "\\", "/") // normalize
+
 		style := itemStyle
 		nameStyle := boldStyle
 		if i == fs.selected {
@@ -167,10 +179,10 @@ func (fs *FileSearchDialog) draw(d *Dialog, s tcell.Screen) {
 			nameStyle = selectedBold
 		}
 
-		fullPath := fs.filtered[i]
-		name := filepath.Base(fullPath)
-		relPath := strings.TrimPrefix(fullPath, fs.cwd+"/")
-		relPath = strings.ReplaceAll(relPath, "\\", "/") // normalize
+		// Fill entire line first
+		for x := 1; x < d.Width-1; x++ {
+			s.SetContent(d.X+x, startY+i, ' ', nil, style)
+		}
 
 		// Truncate if too long
 		maxNameLen := d.Width/2 - 2
@@ -186,6 +198,7 @@ func (fs *FileSearchDialog) draw(d *Dialog, s tcell.Screen) {
 		for j, r := range name {
 			s.SetContent(d.X+1+j, startY+i, r, nil, nameStyle)
 		}
+
 		// Print path (right)
 		offset := d.Width - 1 - len(relPath)
 		for j, r := range relPath {

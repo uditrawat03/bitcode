@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 
@@ -50,19 +49,22 @@ func (sm *ScreenManager) OpenNewFileDialog() {
 		}
 	}
 
-	dialog := dialog.NewNewFileDialog(folder, func(fileName string) {
-		sm.logger.Println("[New file created]:", fileName)
-		fullPath := filepath.Join(folder, string(fileName))
+	dialog := dialog.NewNewFileDialog(folder, func(fullPath string) {
+		sm.logger.Println("[New file created]:", fullPath)
+
+		// Ensure parent directory exists
 		dir := filepath.Dir(fullPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Println("Failed to create directories:", err)
+			sm.logger.Println("Failed to create directories:", err)
+			sm.CloseDialog()
 			return
 		}
 
 		// Create empty file if not exists
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			if err := os.WriteFile(fullPath, []byte{}, 0644); err != nil {
-				log.Println("Failed to create file:", err)
+				sm.logger.Println("Failed to create file:", err)
+				sm.CloseDialog()
 				return
 			}
 		}
@@ -88,7 +90,7 @@ func (sm *ScreenManager) OpenNewFileDialog() {
 		}
 
 		sm.CloseDialog()
-	}, sm.restoreEditorFocus)
+	}, sm.CloseDialog)
 
 	sm.OpenDialog(dialog.Dialog)
 }
@@ -96,6 +98,11 @@ func (sm *ScreenManager) OpenNewFileDialog() {
 func (sm *ScreenManager) ConfirmDeleteNode(node *treeview.Node) {
 	if node == nil {
 		return
+	}
+
+	cancelFunc := func() {
+		sm.CloseDialog()
+		sm.restoreEditorFocus()
 	}
 
 	dialogDel := dialog.NewDeleteNodeDialog(node.Path, func(path string) {
@@ -120,7 +127,7 @@ func (sm *ScreenManager) ConfirmDeleteNode(node *treeview.Node) {
 		}
 
 		sm.CloseDialog()
-	}, sm.restoreEditorFocus)
+	}, sm.restoreEditorFocus, cancelFunc)
 
 	sm.OpenDialog(dialogDel.Dialog)
 }

@@ -55,13 +55,38 @@ func (sm *ScreenManager) HandleKey(ev *tcell.EventKey) {
 			return
 		case tcell.KeyEnter:
 			sm.tooltip.Apply(func(item string) {
-				// TODO: hook this to actual action in editor
-				sm.editor.GetBuffer().InsertRune('\n')
+				buf := sm.editor.GetBuffer()
+				if buf == nil || buf.CursorY < 0 || buf.CursorY >= len(buf.Content) {
+					return
+				}
+
+				// Get current line
+				line := buf.Content[buf.CursorY]
+				cursorX := buf.CursorX
+				if cursorX > len(line) {
+					cursorX = len(line)
+				}
+
+				// Find start of current word
+				start := cursorX
+				for start > 0 {
+					ch := line[start-1]
+					if ch == ' ' || ch == '\t' || ch == '\n' {
+						break
+					}
+					start--
+				}
+
+				// Delete existing word safely
+				buf.DeleteSelection(start, buf.CursorY, cursorX, buf.CursorY)
+
+				// Insert selected completion
 				for _, r := range item {
-					sm.editor.GetBuffer().InsertRune(r)
+					buf.InsertRune(r)
 				}
 			})
 			return
+
 		case tcell.KeyEsc:
 			sm.tooltip.Close()
 			return

@@ -11,9 +11,10 @@ type DeleteNodeDialog struct {
 	*Dialog
 	Path     string
 	OnDelete func(path string)
+	onCancel func()
 }
 
-func NewDeleteNodeDialog(path string, onDelete func(path string), restoreFocus func()) *DeleteNodeDialog {
+func NewDeleteNodeDialog(path string, onDelete func(path string), restoreFocus func(), onCancel func()) *DeleteNodeDialog {
 	d := &DeleteNodeDialog{
 		Dialog: NewDialog(
 			"Delete "+path+"?",
@@ -26,6 +27,7 @@ func NewDeleteNodeDialog(path string, onDelete func(path string), restoreFocus f
 		),
 		Path:     path,
 		OnDelete: onDelete,
+		onCancel: onCancel,
 	}
 
 	d.Dialog.HandleKeyFunc = func(dlg *Dialog, ev *tcell.EventKey) {
@@ -43,7 +45,9 @@ func NewDeleteNodeDialog(path string, onDelete func(path string), restoreFocus f
 				d.OnDelete(path)
 			}
 		case tcell.KeyEsc:
-			if dlg.onCancel != nil {
+			if d.onCancel != nil {
+				d.onCancel()
+			} else if dlg.onCancel != nil {
 				dlg.onCancel()
 			}
 		}
