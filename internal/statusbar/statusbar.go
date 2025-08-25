@@ -1,52 +1,34 @@
 package statusbar
 
 import (
-	"context"
-
 	"github.com/gdamore/tcell/v2"
+	"github.com/uditrawat03/bitcode/internal/core"
+	"github.com/uditrawat03/bitcode/internal/layout"
 )
 
-type Resizable interface {
-	Resize(x, y, w, h int)
+type BottomBar struct {
+	core.BaseComponent
+	Message string
 }
 
-type StatusBar struct {
-	ctx                 context.Context
-	x, y, width, height int
-	focused             bool
+func NewStatusBar(msg string) *BottomBar {
+	return &BottomBar{Message: msg}
 }
 
-func CreateStatusBar(ctx context.Context, x, y, width, height int) *StatusBar {
-	return &StatusBar{ctx: ctx, x: x, y: y, width: width, height: height}
-}
-
-func (sb *StatusBar) Resize(x, y, w, h int) {
-	sb.x, sb.y, sb.width, sb.height = x, y, w, h
-}
-
-// Focusable
-func (sb *StatusBar) Focus()                           { sb.focused = true }
-func (sb *StatusBar) Blur()                            { sb.focused = false }
-func (sb *StatusBar) IsFocused() bool                  { return sb.focused }
-func (sb *StatusBar) HandleKey(ev *tcell.EventKey)     {}
-func (sb *StatusBar) HandleMouse(ev *tcell.EventMouse) {}
-
-// Draw
-func (sb *StatusBar) Draw(s tcell.Screen) {
-	style := tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorYellow)
-	if sb.focused {
-		style = style.Reverse(true)
+func (b *BottomBar) Render(screen tcell.Screen, lm *layout.LayoutManager) {
+	style := tcell.StyleDefault.Background(tcell.ColorGray).Foreground(tcell.ColorBlack)
+	for x := 0; x < b.Rect.Width; x++ {
+		screen.SetContent(b.Rect.X+x, b.Rect.Y, ' ', nil, style)
 	}
-	content := " Status: Ready "
-	for row := 0; row < sb.height; row++ {
-		for col := 0; col < sb.width; col++ {
-			s.SetContent(sb.x+col, sb.y+row, ' ', nil, style)
+	for i, r := range b.Message {
+		if i < b.Rect.Width {
+			screen.SetContent(b.Rect.X+i, b.Rect.Y, r, nil, style)
 		}
 	}
-	for i, r := range content {
-		if i >= sb.width {
-			break
-		}
-		s.SetContent(sb.x+i, sb.y, r, nil, style)
-	}
 }
+
+func (b *BottomBar) Focus()                           {}
+func (b *BottomBar) Blur()                            {}
+func (b *BottomBar) IsFocused() bool                  { return false }
+func (b *BottomBar) HandleKey(ev *tcell.EventKey)     {}
+func (b *BottomBar) HandleMouse(ev *tcell.EventMouse) {}

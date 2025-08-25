@@ -1,144 +1,67 @@
 package ui
 
-// import (
-// 	"os"
-// 	"path/filepath"
+import (
+	"os"
+	"path/filepath"
 
-// 	"github.com/uditrawat03/bitcode/internal/dialog"
-// 	"github.com/uditrawat03/bitcode/internal/treeview"
-// )
+	"github.com/uditrawat03/bitcode/internal/dialog"
+)
 
-// // OpenDialog opens a modal dialog
-// func (sm *ScreenManager) OpenDialog(d *dialog.Dialog) {
-// 	sm.dialog = d
-// 	d.SetFocus(true)
-// }
+// New file dialog
+func (sm *ScreenManager) openNewFileDialog() {
+	folder := sm.getBufferParentFolder()
+	sm.isDialogOpen = true
 
-// // CloseDialog closes the modal dialog
-// func (sm *ScreenManager) CloseDialog() {
-// 	if sm.dialog != nil {
-// 		sm.dialog.SetFocus(false)
-// 		sm.dialog = nil
-// 		sm.screen.HideCursor()
-// 	}
-// }
+	var dlg *dialog.InputDialog
+	dlg = dialog.NewInputDialog(
+		folder,
+		"New File",
+		"Enter filename:",
+		func(input string) {
+			if input == "" {
+				sm.closeDialog(dlg)
+				return
+			}
 
-// func (sm *ScreenManager) restoreEditorFocus() {
-// 	if sm.editor != nil && sm.editor.GetBuffer() != nil {
-// 		sm.focusOrder[sm.focusedIdx].Blur()
-// 		sm.focusedIdx = 1
-// 		sm.editor.Focus()
-// 	}
-// }
+			fullPath := filepath.Join(folder, input)
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				sm.logger.Println("Failed to create directories:", err)
+				sm.closeDialog(dlg)
+				return
+			}
 
-// func (sm *ScreenManager) OpenNewFileDialog() {
-// 	folder := "."
-// 	if sm.sidebar.IsFocused() {
-// 		node := sm.sidebar.GetSelectedNode()
-// 		if node != nil {
-// 			if node.IsDir {
-// 				folder = node.Path
-// 			} else if node.Parent != nil {
-// 				folder = node.Parent.Path
-// 			}
-// 		}
-// 	} else if sm.editor.IsFocused() {
-// 		buf := sm.editor.GetBuffer()
-// 		if buf != nil {
-// 			folder = sm.editor.GetBufferParentFolder()
-// 		}
-// 	}
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				if err := os.WriteFile(fullPath, []byte{}, 0644); err != nil {
+					sm.logger.Println("Failed to create file:", err)
+					sm.closeDialog(dlg)
+					return
+				}
+			}
 
-// 	dialog := dialog.NewNewFileDialog(folder, func(fullPath string) {
-// 		sm.logger.Println("[New file created]:", fullPath)
+			buf := sm.Bm.Open(fullPath)
+			sm.OpenBufferInEditor(buf)
 
-// 		// Ensure parent directory exists
-// 		dir := filepath.Dir(fullPath)
-// 		if err := os.MkdirAll(dir, 0755); err != nil {
-// 			sm.logger.Println("Failed to create directories:", err)
-// 			sm.CloseDialog()
-// 			return
-// 		}
+			if sm.selectedNode != nil && sm.refreshTree != nil {
+				parent := sm.selectedNode
+				if !parent.IsDir && parent.Parent != nil {
+					parent = parent.Parent
+				}
+				sm.refreshTree(parent)
+			}
 
-// 		// Create empty file if not exists
-// 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-// 			if err := os.WriteFile(fullPath, []byte{}, 0644); err != nil {
-// 				sm.logger.Println("Failed to create file:", err)
-// 				sm.CloseDialog()
-// 				return
-// 			}
-// 		}
+			sm.closeDialog(dlg)
+		},
+		func() { sm.closeDialog(dlg) },
+	)
 
-// 		// Refresh sidebar
-// 		if sm.sidebar != nil {
-// 			node := sm.sidebar.GetSelectedNode()
-// 			if node != nil {
-// 				if node.IsDir {
-// 					sm.sidebar.Tree.ReloadChildren(node)
-// 				} else if node.Parent != nil {
-// 					sm.sidebar.Tree.ReloadChildren(node.Parent)
-// 				}
-// 			}
-// 			sm.sidebar.ScrollY = 0
-// 			sm.sidebar.Selected = 0
-// 		}
+	sw, sh := sm.screen.Size()
+	dlgWidth, dlgHeight := 40, 7
+	x := (sw - dlgWidth) / 2
+	y := (sh - dlgHeight) / 2
+	dlg.SetPosition(x, y)
+	dlg.Resize(dlgWidth, dlgHeight)
 
-// 		// Open in editor
-// 		if sm.editor != nil {
-// 			buf := sm.bufferManager.Open(fullPath)
-// 			sm.editor.SetBuffer(buf)
-// 		}
-
-// 		sm.CloseDialog()
-// 	}, sm.CloseDialog)
-
-// 	sm.OpenDialog(dialog.Dialog)
-// }
-
-// func (sm *ScreenManager) ConfirmDeleteNode(node *treeview.Node) {
-// 	if node == nil {
-// 		return
-// 	}
-
-// 	cancelFunc := func() {
-// 		sm.CloseDialog()
-// 		sm.restoreEditorFocus()
-// 	}
-
-// 	dialogDel := dialog.NewDeleteNodeDialog(node.Path, func(path string) {
-// 		sm.logger.Println("[Deleted]:", path)
-
-// 		// Clear editor if deleted
-// 		if sm.editor != nil && sm.editor.GetBuffer() != nil {
-// 			if sm.editor.GetBuffer().File == path {
-// 				sm.editor.SetBuffer(nil)
-// 			}
-// 		}
-
-// 		// Refresh parent folder
-// 		if node.Parent != nil && sm.sidebar != nil {
-// 			sm.sidebar.Tree.ReloadChildren(node.Parent)
-// 			sm.sidebar.ScrollY = 0
-// 			if len(sm.sidebar.Tree.Nodes) > 0 {
-// 				sm.sidebar.Selected = 0
-// 			} else {
-// 				sm.sidebar.Selected = -1
-// 			}
-// 		}
-
-// 		sm.CloseDialog()
-// 	}, sm.restoreEditorFocus, cancelFunc)
-
-// 	sm.OpenDialog(dialogDel.Dialog)
-// }
-
-// func (sm *ScreenManager) openFileSearchDialog() {
-// 	files := sm.bufferManager.ListFilesInCwd()
-// 	fsDialog := dialog.NewFileSearchDialog(sm.rootPath, files, func(selected string) {
-// 		buf := sm.bufferManager.Open(selected)
-// 		sm.editor.SetBuffer(buf)
-// 		sm.CloseDialog()
-// 	}, sm.restoreEditorFocus, sm.CloseDialog)
-
-// 	sm.OpenDialog(fsDialog.Dialog)
-// }
+	sm.AddComponent(dlg, true)
+	sm.setFocus(len(sm.focusOrder) - 1)
+	sm.RequestRender()
+}

@@ -22,12 +22,14 @@ func (ed *Editor) HandleMouse(ev *tcell.EventMouse) {
 
 	// Left click
 	if btns&tcell.Button1 != 0 {
-		if x >= ed.x && x < ed.x+ed.width && y >= ed.y && y < ed.y+ed.height {
-			if ed.focusCb != nil {
-				ed.focusCb()
-			}
+		if x >= ed.Rect.X && x < ed.Rect.X+ed.Rect.Width && y >= ed.Rect.Y && y < ed.Rect.Y+ed.Rect.Height {
+			// if ed.focusCb != nil {
+			// 	ed.focusCb()
+			// }
 
-			clickedRow := y - ed.y + ed.scrollY
+			ed.Focus()
+
+			clickedRow := y - ed.Rect.Y + ed.scrollY
 			if clickedRow < 0 {
 				clickedRow = 0
 			}
@@ -40,7 +42,7 @@ func (ed *Editor) HandleMouse(ev *tcell.EventMouse) {
 			ed.buffer.CursorY = clickedRow
 
 			// Compute column
-			col := x - ed.x - 4
+			col := x - ed.Rect.X - 4
 			if col < 0 {
 				col = 0
 			}
@@ -53,8 +55,8 @@ func (ed *Editor) HandleMouse(ev *tcell.EventMouse) {
 			// Scroll adjustment
 			if ed.buffer.CursorY < ed.scrollY {
 				ed.scrollY = ed.buffer.CursorY
-			} else if ed.buffer.CursorY >= ed.scrollY+ed.height {
-				ed.scrollY = ed.buffer.CursorY - ed.height + 1
+			} else if ed.buffer.CursorY >= ed.scrollY+ed.Rect.Height {
+				ed.scrollY = ed.buffer.CursorY - ed.Rect.Height + 1
 			}
 		}
 	}
@@ -70,7 +72,7 @@ func (ed *Editor) Scroll(dy int) {
 		ed.scrollY = 0
 	}
 
-	maxScroll := len(ed.buffer.Content) - ed.height
+	maxScroll := len(ed.buffer.Content) - ed.Rect.Height
 	if maxScroll < 0 {
 		maxScroll = 0
 	}

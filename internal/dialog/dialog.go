@@ -2,189 +2,98 @@ package dialog
 
 import (
 	"github.com/gdamore/tcell/v2"
+	"github.com/uditrawat03/bitcode/internal/core"
 )
 
-// Dialog is a generic modal dialog
 type Dialog struct {
-	X, Y, Width, Height int
-	title, description  string
-	input               []rune
-	cursor              int
-	focused             bool
-	scrollX             int
-	HasInput            bool
-
-	onSubmit func(string)
+	core.BaseComponent
+	title    string
+	message  string
+	options  []string
+	selected int
+	focused  bool
+	onSelect func(idx int)
 	onCancel func()
-
-	// Optional custom drawing
-	CustomDraw    func(d *Dialog, s tcell.Screen)
-	HandleKeyFunc func(d *Dialog, ev *tcell.EventKey) // override key handling
-
-	restoreFocus func()
 }
 
-// NewDialog creates a new dialog
-func NewDialog(title, description string, w, h int, hasInput bool, onSubmit func(string), onCancel func(), restoreFocus func()) *Dialog {
+func NewDialog(title, message string, options []string, onSelect func(int), onCancel func()) *Dialog {
 	return &Dialog{
-		title:        title,
-		description:  description,
-		Width:        w,
-		Height:       h,
-		HasInput:     hasInput,
-		onSubmit:     onSubmit,
-		onCancel:     onCancel,
-		restoreFocus: restoreFocus,
+		title:    title,
+		message:  message,
+		options:  options,
+		selected: 0,
+		onSelect: onSelect,
+		onCancel: onCancel,
 	}
 }
 
-// SetFocus sets focus
-func (d *Dialog) SetFocus(f bool) {
-	d.focused = f
-	if !f && d.restoreFocus != nil {
-		d.restoreFocus()
-	}
-}
+func (d *Dialog) Focus()          { d.focused = true }
+func (d *Dialog) Blur()           { d.focused = false }
+func (d *Dialog) IsFocused() bool { return d.focused }
 
-func (d *Dialog) IsFocused() bool {
-	return d.focused
-}
+func (d *Dialog) Render(screen tcell.Screen, _ interface{}) {
+	bg := tcell.ColorDarkGray
+	style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(bg)
+	titleStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(bg).Bold(true)
+	selectedStyle := tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite).Bold(true)
 
-// Center positions dialog in the screen
-func (d *Dialog) Center(s tcell.Screen) {
-	sw, sh := s.Size()
-	d.X = (sw - d.Width) / 2
-	d.Y = (sh - d.Height) / 2
-}
-
-// HandleKey handles keyboard input (or delegates to HandleKeyFunc)
-func (d *Dialog) HandleKey(ev *tcell.EventKey) {
-	if !d.focused {
-		return
-	}
-	if d.HandleKeyFunc != nil {
-		d.HandleKeyFunc(d, ev)
-		return
-	}
-
-	switch ev.Key() {
-	case tcell.KeyEnter:
-		if d.onSubmit != nil {
-			if d.HasInput {
-				d.onSubmit(string(d.input))
-			} else {
-				d.onSubmit("")
-			}
-		}
-	case tcell.KeyEsc:
-		if d.onCancel != nil {
-			d.onCancel()
-		}
-	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		if d.cursor > 0 {
-			d.input = append(d.input[:d.cursor-1], d.input[d.cursor:]...)
-			d.cursor--
-			if d.cursor < d.scrollX {
-				d.scrollX--
-			}
-		}
-	case tcell.KeyLeft:
-		if d.cursor > 0 {
-			d.cursor--
-			if d.cursor < d.scrollX {
-				d.scrollX--
-			}
-		}
-	case tcell.KeyRight:
-		if d.cursor < len(d.input) {
-			d.cursor++
-			if d.cursor-d.scrollX >= d.Width-2 {
-				d.scrollX++
-			}
-		}
-	default:
-		if ev.Rune() != 0 && d.HasInput {
-			d.input = append(d.input[:d.cursor], append([]rune{ev.Rune()}, d.input[d.cursor:]...)...)
-			d.cursor++
-			if d.cursor-d.scrollX >= d.Width-2 {
-				d.scrollX++
-			}
-		}
-	}
-}
-
-// Draw renders the dialog
-func (d *Dialog) Draw(s tcell.Screen) {
-	if d.CustomDraw != nil {
-		d.CustomDraw(d, s)
-		return
-	}
-
-	bgStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.NewRGBColor(30, 30, 30))
-	borderStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(200, 200, 200)).Background(tcell.NewRGBColor(30, 30, 30))
-	titleStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(tcell.NewRGBColor(30, 30, 30))
-	descStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.NewRGBColor(30, 30, 30))
-
-	// Draw border
-	for row := 0; row < d.Height; row++ {
-		for col := 0; col < d.Width; col++ {
-			ch := ' '
-			switch {
-			case row == 0 && col == 0:
-				ch = '┌'
-			case row == 0 && col == d.Width-1:
-				ch = '┐'
-			case row == d.Height-1 && col == 0:
-				ch = '└'
-			case row == d.Height-1 && col == d.Width-1:
-				ch = '┘'
-			case row == 0 || row == d.Height-1:
-				ch = '─'
-			case col == 0 || col == d.Width-1:
-				ch = '│'
-			}
-			s.SetContent(d.X+col, d.Y+row, ch, nil, borderStyle)
+	// Draw dialog box border
+	for y := d.Rect.Y; y < d.Rect.Y+d.Rect.Height; y++ {
+		for x := d.Rect.X; x < d.Rect.X+d.Rect.Width; x++ {
+			screen.SetContent(x, y, ' ', nil, style)
 		}
 	}
 
 	// Title
 	for i, r := range d.title {
-		if i >= d.Width-4 {
+		if i >= d.Rect.Width {
 			break
 		}
-		s.SetContent(d.X+2+i, d.Y, r, nil, titleStyle)
+		screen.SetContent(d.Rect.X+i+1, d.Rect.Y, r, nil, titleStyle)
 	}
 
-	// Description
-	for i, r := range d.description {
-		if i >= d.Width-4 {
+	// Message
+	for i, r := range d.message {
+		if i >= d.Rect.Width-2 {
 			break
 		}
-		s.SetContent(d.X+2+i, d.Y+2, r, nil, descStyle)
+		screen.SetContent(d.Rect.X+1+i, d.Rect.Y+2, r, nil, style)
 	}
 
-	// Input line
-	if d.HasInput {
-		inputLine := "> " + string(d.input)
-		for i, r := range inputLine {
-			if i >= d.Width-2 {
+	// Options
+	for idx, opt := range d.options {
+		optStyle := style
+		if idx == d.selected && d.focused {
+			optStyle = selectedStyle
+		}
+		for i, r := range opt {
+			if i >= d.Rect.Width-2 {
 				break
 			}
-			s.SetContent(d.X+1+i, d.Y+d.Height-1, r, nil, bgStyle)
+			screen.SetContent(d.Rect.X+1+i, d.Rect.Y+4+idx, r, nil, optStyle)
 		}
-		// Cursor
-		if d.focused {
-			cursorPos := len("> ") + d.cursor
-			if cursorPos < d.Width-2 {
-				s.ShowCursor(d.X+1+cursorPos, d.Y+d.Height-1)
-			} else {
-				s.HideCursor()
-			}
-		}
-	} else {
-		s.HideCursor()
 	}
 }
 
-// HandleMouse can be extended
-func (d *Dialog) HandleMouse(ev *tcell.EventMouse) {}
+func (d *Dialog) HandleKey(ev *tcell.EventKey) {
+	switch ev.Key() {
+	case tcell.KeyUp:
+		if d.selected > 0 {
+			d.selected--
+		}
+	case tcell.KeyDown:
+		if d.selected < len(d.options)-1 {
+			d.selected++
+		}
+	case tcell.KeyEnter:
+		if d.onSelect != nil {
+			d.onSelect(d.selected)
+		}
+	case tcell.KeyEscape:
+		if d.onCancel != nil {
+			d.onCancel()
+		}
+	}
+}
+
+func (t *Dialog) HandleMouse(ev *tcell.EventMouse) {}

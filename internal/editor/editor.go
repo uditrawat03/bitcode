@@ -1,27 +1,23 @@
 package editor
 
 import (
-	"context"
 	"fmt"
-	"log"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/uditrawat03/bitcode/internal/buffer"
+	"github.com/uditrawat03/bitcode/internal/core"
+	"github.com/uditrawat03/bitcode/internal/layout"
 )
 
-type Resizable interface {
-	Resize(x, y, w, h int)
-}
-
 type Editor struct {
-	ctx                 context.Context
-	logger              *log.Logger
-	x, y, width, height int
-	scrollY             int
-	focused             bool
-	buffer              *buffer.Buffer
+	core.BaseComponent
+	focused bool
 
-	clipboard []rune
+	scrollY int
+
+	buffer *buffer.Buffer
+
+	Content []string
 
 	selecting     bool
 	ctrlASelected bool
@@ -30,56 +26,29 @@ type Editor struct {
 	selEndX       int
 	selEndY       int
 
-	focusCb func()
-
-	showTooltipFn func(x, y int, content string, list []string)
+	clipboard []rune
 }
 
-func (ed *Editor) SetFocusCallback(cb func()) {
-	ed.focusCb = cb
+func NewEditor() *Editor {
+	return &Editor{
+		Content: []string{"// Your code goes here"},
+	}
 }
 
-func (ed *Editor) SetTooltipHandler(fn func(x, y int, content string, list []string)) {
-	ed.showTooltipFn = fn
-}
-
-func CreateEditor(ctx context.Context, logger *log.Logger, x, y, width, height int) *Editor {
-	return &Editor{ctx: ctx, x: x, y: y, width: width, height: height, logger: logger}
-}
-
-func (ed *Editor) Resize(x, y, w, h int) {
-	ed.x, ed.y, ed.width, ed.height = x, y, w, h
-}
-
-func (ed *Editor) SetBuffer(buf *buffer.Buffer) {
-	ed.buffer = buf
-	ed.scrollY = 0
-}
-
-// Focusable methods
-func (ed *Editor) Focus()          { ed.focused = true }
-func (ed *Editor) Blur()           { ed.focused = false }
-func (ed *Editor) IsFocused() bool { return ed.focused }
-
-// Draw editor content
-func (ed *Editor) Draw(screen tcell.Screen) {
+func (ed *Editor) Render(screen tcell.Screen, lm *layout.LayoutManager) {
 	bg := tcell.ColorBlack
-
 	style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(bg)
-
-	// Line highlight style (full width)
 	highlightStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.NewRGBColor(50, 50, 80))
 
-	// background + line highlighting
-	for row := 0; row < ed.height; row++ {
+	// Fill background
+	for row := 0; row < ed.Rect.Height; row++ {
 		idx := row + ed.scrollY
 		currentLineStyle := style
 		if ed.buffer != nil && idx == ed.buffer.CursorY {
 			currentLineStyle = highlightStyle
 		}
-
-		for col := 0; col < ed.width; col++ {
-			screen.SetContent(ed.x+col, ed.y+row, ' ', nil, currentLineStyle)
+		for col := 0; col < ed.Rect.Width; col++ {
+			screen.SetContent(ed.Rect.X+col, ed.Rect.Y+row, ' ', nil, currentLineStyle)
 		}
 	}
 
@@ -87,8 +56,8 @@ func (ed *Editor) Draw(screen tcell.Screen) {
 		return
 	}
 
-	// draw buffer lines with line numbers
-	for row := 0; row < ed.height; row++ {
+	// Draw buffer lines
+	for row := 0; row < ed.Rect.Height; row++ {
 		idx := row + ed.scrollY
 		if idx >= len(ed.buffer.Content) {
 			break
@@ -96,53 +65,64 @@ func (ed *Editor) Draw(screen tcell.Screen) {
 		line := string(ed.buffer.Content[idx])
 		lnStr := fmt.Sprintf("%3d ", idx+1)
 
-		// Determine style for this line
+		// Style for this line
 		currentLineStyle := style
-		if idx == ed.buffer.CursorY {
+		if idx == ed.buffer.CursorY || ed.isLineSelected(idx) {
 			currentLineStyle = highlightStyle
 		}
 
-		if idx == ed.buffer.CursorY || ed.isLineSelected(idx) {
-			currentLineStyle = highlightStyle // full-width highlight
-		}
-
-		// Draw line numbers
+		// Line numbers
 		for i, r := range lnStr {
-			if i >= 4 || i >= ed.width {
+			if i >= 4 || i >= ed.Rect.Width {
 				break
 			}
-			screen.SetContent(ed.x+i, ed.y+row, r, nil, currentLineStyle)
+			screen.SetContent(ed.Rect.X+i, ed.Rect.Y+row, r, nil, currentLineStyle)
 		}
 
-		// Draw text
-		// for i, r := range line {
-		// 	if i+4 >= ed.width {
-		// 		break
-		// 	}
-		// 	screen.SetContent(ed.x+4+i, ed.y+row, r, nil, currentLineStyle)
-		// }
-
+		// Text (syntax highlight)
 		tokens := highlightLine(line)
 		for i, t := range tokens {
-			if i+4 >= ed.width {
+			if i+4 >= ed.Rect.Width {
 				break
 			}
-			screen.SetContent(ed.x+4+i, ed.y+row, t.ch, nil, t.style)
+			screen.SetContent(ed.Rect.X+4+i, ed.Rect.Y+row, t.ch, nil, t.style)
 		}
 	}
 
-	// draw cursor
-	if ed.focused {
-		cx := ed.x + 4 + ed.buffer.CursorX
-		cy := ed.y + ed.buffer.CursorY - ed.scrollY
-		if cy >= 0 && cy < ed.height && cx >= ed.x && cx < ed.x+ed.width {
+	// Cursor
+	if ed.IsFocused() {
+		cx := ed.Rect.X + 4 + ed.buffer.CursorX
+		cy := ed.Rect.Y + (ed.buffer.CursorY - ed.scrollY)
+
+		if cy >= ed.Rect.Y && cy < ed.Rect.Y+ed.Rect.Height &&
+			cx >= ed.Rect.X && cx < ed.Rect.X+ed.Rect.Width {
+
 			screen.ShowCursor(cx, cy)
+
+			mainCh, comb, st, _ := screen.GetContent(cx, cy)
+			if mainCh == ' ' {
+				// draw visible block if empty
+				screen.SetContent(cx, cy, '▉', nil, st)
+			} else {
+				// invert existing character
+				screen.SetContent(cx, cy, mainCh, comb, st.Reverse(true))
+			}
+		} else {
+			screen.HideCursor()
 		}
 	}
 }
 
-func (ed *Editor) GetBuffer() *buffer.Buffer {
-	return ed.buffer
+func (ed *Editor) Focus() {
+	ed.focused = true
+	ed.ensureCursorVisible()
+}
+func (ed *Editor) Blur()           { ed.focused = false }
+func (ed *Editor) IsFocused() bool { return ed.focused }
+
+func (ed *Editor) SetBuffer(buf *buffer.Buffer) {
+	ed.buffer = buf
+	ed.scrollY = 0
 }
 
 func (ed *Editor) GetBufferParentFolder() string {

@@ -1,144 +1,135 @@
 package sidebar
 
 import (
-	"context"
-
 	"github.com/gdamore/tcell/v2"
+	"github.com/uditrawat03/bitcode/internal/core"
+	"github.com/uditrawat03/bitcode/internal/layout"
 	"github.com/uditrawat03/bitcode/internal/treeview"
 )
 
-type Resizable interface {
-	Resize(x, y, w, h int)
-}
-
 type Sidebar struct {
-	ctx                 context.Context
-	X, Y, Width, Height int
-	Focused             bool
-	ScrollY             int
-	Selected            int
-	Hovered             int
-	resizing            bool
-
-	Tree *treeview.TreeView
-
+	core.BaseComponent
+	Tree       *treeview.TreeView
+	Width      int
+	Resizing   bool
+	OnChange   func()
 	onFileOpen func(path string)
-	focusCb    func()
+
+	onNodeSelect func(node *treeview.TreeNode)
 }
 
-func CreateSidebar(ctx context.Context, x, y, width, height int, cwd string) *Sidebar {
-	return NewSidebar(ctx, x, y, width, height, cwd)
-}
+func (s *Sidebar) SetOnFileOpen(cb func(node string))               { s.onFileOpen = cb }
+func (s *Sidebar) SetOnNodeSelect(cb func(node *treeview.TreeNode)) { s.onNodeSelect = cb }
 
-func (sb *Sidebar) Resize(x, y, w, h int) {
-	sb.X, sb.Y, sb.Width, sb.Height = x, y, w, h
-}
-
-// Create a new sidebar
-func NewSidebar(ctx context.Context, x, y, width, height int, rootPath string) *Sidebar {
-	return &Sidebar{
-		ctx:    ctx,
-		X:      x,
-		Y:      y,
-		Width:  width,
-		Height: height,
-		Tree:   treeview.NewTreeView(rootPath),
+func (s *Sidebar) OnReloadTreeViewChildren(node *treeview.TreeNode) {
+	s.Tree.LoadChildren(node)
+	if s.OnChange != nil {
+		s.OnChange()
 	}
 }
 
-func (sb *Sidebar) SetFocusCallback(cb func()) { sb.focusCb = cb }
-func (sb *Sidebar) SetOnFileOpen(cb func(path string)) {
-	sb.onFileOpen = cb
+func NewSidebar(rootPath string, initialWidth int, onChange func()) *Sidebar {
+	tv := treeview.NewTreeView(rootPath)
+	tv.OnChange = onChange
+
+	sb := &Sidebar{
+		Tree:     tv,
+		Width:    initialWidth,
+		Resizing: false,
+		OnChange: onChange,
+	}
+
+	// Wrap TreeView callbacks
+	tv.SetOnNodeSelect(func(path string) {
+		if sb.onFileOpen != nil {
+			sb.onFileOpen(path)
+		}
+		if sb.OnChange != nil {
+			sb.OnChange()
+		}
+	})
+	tv.SetOnNodeItemSelect(func(node *treeview.TreeNode) {
+		if sb.onNodeSelect != nil {
+			sb.onNodeSelect(node)
+		}
+		if sb.OnChange != nil {
+			sb.OnChange()
+		}
+	})
+
+	return sb
+}
+
+func (s *Sidebar) ReloadNode(node *treeview.TreeNode) {
+	s.Tree.LoadChildren(node)
+	s.Tree.FlattenVisible()
+	if s.OnChange != nil {
+		s.OnChange()
+	}
+}
+
+func (s *Sidebar) SetPosition(x, y int)     { s.Rect.X = x; s.Rect.Y = y }
+func (s *Sidebar) Resize(width, height int) { s.Rect.Width = width; s.Rect.Height = height }
+
+func (s *Sidebar) Render(screen tcell.Screen, lm *layout.LayoutManager) {
+	bg := tcell.NewRGBColor(30, 30, 30)
+	style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(bg)
+	_, screenHeight := screen.Size()
+	layout := lm.GetLayout()
+
+	topBarHeight := layout.TopBarHeight
+	statusBarHeight := layout.StatusBarHeight
+
+	// Position sidebar
+	x := 0
+	y := topBarHeight
+	s.Rect.X = x
+	s.Rect.Y = y
+	s.Rect.Width = s.Width
+	s.Rect.Height = screenHeight - topBarHeight - statusBarHeight
+
+	// Draw right border
+	for row := y; row < y+s.Rect.Height; row++ {
+		screen.SetContent(x+s.Width, row, '│', nil, style)
+	}
+
+	// Render TreeView
+	s.Tree.SetLogger(s.Logger)
+	s.Tree.SetPosition(x, y)
+	s.Tree.Resize(s.Width, s.Rect.Height)
+	s.Tree.Render(screen, lm)
 }
 
 // Focusable
-func (sb *Sidebar) Focus()          { sb.Focused = true }
-func (sb *Sidebar) Blur()           { sb.Focused = false }
-func (sb *Sidebar) IsFocused() bool { return sb.Focused }
+func (s *Sidebar) Focus()                       { s.Tree.Focus() }
+func (s *Sidebar) Blur()                        { s.Tree.Blur() }
+func (s *Sidebar) IsFocused() bool              { return s.Tree.IsFocused() }
+func (s *Sidebar) HandleKey(ev *tcell.EventKey) { s.Tree.HandleKey(ev) }
 
-// Draw the sidebar
-func (sb *Sidebar) Draw(s tcell.Screen) {
-	bg := tcell.NewRGBColor(30, 30, 30)
-	style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(bg)
-	selectedStyle := tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.NewRGBColor(100, 100, 255))
-	hoverStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.NewRGBColor(60, 60, 60))
+func (s *Sidebar) HandleMouse(ev *tcell.EventMouse) {
+	x, _ := ev.Position()
 
-	// Fill background with right border
-	for row := 0; row < sb.Height; row++ {
-		for col := 0; col < sb.Width; col++ {
-			ch := ' '
-			if col == sb.Width-1 {
-				ch = '│'
-			}
-			s.SetContent(sb.X+col, sb.Y+row, ch, nil, style)
+	// Drag start on right border
+	if ev.Buttons()&tcell.Button1 != 0 && x == s.Rect.X+s.Width {
+		s.Resizing = true
+		return
+	}
+	if ev.Buttons() == 0 {
+		s.Resizing = false
+		return
+	}
+	if s.Resizing {
+		newWidth := x - s.Rect.X
+		if newWidth < 10 {
+			newWidth = 10
 		}
+		s.Width = newWidth
+		if s.OnChange != nil {
+			s.OnChange()
+		}
+		return
 	}
 
-	// Draw nodes
-	for i := 0; i < sb.Height; i++ {
-		idx := i + sb.ScrollY
-		if idx >= len(sb.Tree.Nodes) {
-			break
-		}
-		node := sb.Tree.Nodes[idx]
-		level := sb.Tree.Level(node)
-
-		line := ""
-		for j := 0; j < level; j++ {
-			line += "  "
-		}
-		if node.IsDir {
-			if node.Expanded {
-				line += "▼ "
-			} else {
-				line += "▶ "
-			}
-		} else {
-			line += "  "
-		}
-		line += node.Name
-
-		runes := []rune(line)
-		if len(runes) > sb.Width-1 {
-			runes = runes[:sb.Width-2]
-			runes = append(runes, '…')
-		}
-
-		currentStyle := style
-		if idx == sb.Selected {
-			currentStyle = selectedStyle
-		} else if idx == sb.Hovered {
-			currentStyle = hoverStyle
-		}
-
-		for col := 0; col < sb.Width-1; col++ {
-			ch := ' '
-			if col < len(runes) {
-				ch = runes[col]
-			}
-			s.SetContent(sb.X+col, sb.Y+i, ch, nil, currentStyle)
-		}
-	}
-
-	// Draw scrollbar
-	if len(sb.Tree.Nodes) > sb.Height {
-		scrollbarHeight := sb.Height * sb.Height / len(sb.Tree.Nodes)
-		if scrollbarHeight < 1 {
-			scrollbarHeight = 1
-		}
-		scrollbarY := sb.ScrollY * sb.Height / len(sb.Tree.Nodes)
-
-		for i := 0; i < scrollbarHeight && scrollbarY+i < sb.Height; i++ {
-			s.SetContent(sb.X+sb.Width-1, sb.Y+scrollbarY+i, '█', nil,
-				tcell.StyleDefault.Foreground(tcell.ColorGray))
-		}
-	}
-}
-
-// Get selected node
-func (sb *Sidebar) GetSelectedNode() *treeview.Node {
-	if sb.Selected >= 0 && sb.Selected < len(sb.Tree.Nodes) {
-		return sb.Tree.Nodes[sb.Selected]
-	}
-	return nil
+	// Pass mouse wheel and clicks to tree
+	s.Tree.HandleMouse(ev)
 }

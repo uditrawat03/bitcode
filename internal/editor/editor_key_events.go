@@ -60,8 +60,8 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	switch ev.Key() {
 	case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
 		ed.handleCursorMovement(ev)
-		ed.ShowHover()
-		ed.ShowDiagnostics()
+		// ed.ShowHover()
+		// ed.ShowDiagnostics()
 	case tcell.KeyHome:
 		ed.handleHome()
 	case tcell.KeyEnd:
@@ -93,12 +93,12 @@ func (ed *Editor) HandleKey(ev *tcell.EventKey) {
 	case tcell.KeyCtrlY:
 		ed.buffer.Redo()
 	case tcell.KeyCtrlL:
-		ed.ShowCodeActions()
+		// ed.ShowCodeActions()
 	default:
 		ed.handleRune(ev)
 		// Trigger live completion for certain characters
 		if ev.Rune() != 0 && isCompletionTrigger(ev.Rune()) {
-			ed.ShowCompletion()
+			// ed.ShowCompletion()
 		}
 	}
 
@@ -152,13 +152,13 @@ func (ed *Editor) handleEnd() {
 	}
 }
 func (ed *Editor) handlePageUp() {
-	ed.buffer.CursorY -= ed.height
+	ed.buffer.CursorY -= ed.Rect.Height
 	if ed.buffer.CursorY < 0 {
 		ed.buffer.CursorY = 0
 	}
 }
 func (ed *Editor) handlePageDown() {
-	ed.buffer.CursorY += ed.height
+	ed.buffer.CursorY += ed.Rect.Height
 	if ed.buffer.CursorY >= len(ed.buffer.Content) {
 		ed.buffer.CursorY = len(ed.buffer.Content) - 1
 	}
@@ -303,10 +303,24 @@ func (ed *Editor) ensureCursorVisible() {
 	if ed.buffer == nil {
 		return
 	}
+
+	// ---- Vertical scroll ----
 	if ed.buffer.CursorY < ed.scrollY {
 		ed.scrollY = ed.buffer.CursorY
 	}
-	if ed.buffer.CursorY >= ed.scrollY+ed.height {
-		ed.scrollY = ed.buffer.CursorY - ed.height + 1
+	if ed.buffer.CursorY >= ed.scrollY+ed.Rect.Height {
+		ed.scrollY = ed.buffer.CursorY - ed.Rect.Height + 1
 	}
+
+	// // ---- Horizontal scroll ----
+	// // Account for gutter (line numbers = 4 chars wide)
+	// gutterWidth := 4
+	// cursorScreenX := ed.buffer.CursorX + gutterWidth
+
+	// if cursorScreenX < ed.scrollX {
+	//     ed.scrollX = cursorScreenX
+	// }
+	// if cursorScreenX >= ed.scrollX+ed.Rect.Width {
+	//     ed.scrollX = cursorScreenX - ed.Rect.Width + 1
+	// }
 }
